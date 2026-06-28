@@ -3,6 +3,8 @@ import math
 import re
 import tempfile
 from pathlib import Path
+import networkx as nx
+import pytest
 from graphify.build import build_from_json
 from graphify.cluster import cluster
 from graphify.export import to_json, to_cypher, to_graphml, to_html, to_canvas, to_obsidian
@@ -81,6 +83,182 @@ def test_to_graphml_has_community_attribute():
         to_graphml(G, communities, str(out))
         content = out.read_text()
         assert "community" in content
+
+
+def test_to_graphml_materializes_hyperedge_with_metadata_and_members(tmp_path):
+    G = nx.Graph()
+    G.add_nodes_from(["a", "b", "c"])
+    G.graph["hyperedges"] = [{
+        "id": "auth-flow",
+        "label": "Auth Flow",
+        "relation": "coordinates",
+        "confidence": "INFERRED",
+        "confidence_score": 0.75,
+        "source_file": "docs/auth.md",
+        "nodes": ["a", "b", "c"],
+    }]
+
+    out = tmp_path / "graph.graphml"
+    to_graphml(G, {4: ["a", "b", "c"]}, str(out))
+    exported = nx.read_graphml(out)
+
+    hyperedge_nodes = [
+        (node, attrs)
+        for node, attrs in exported.nodes(data=True)
+        if attrs.get("type") == "hyperedge"
+    ]
+    assert len(hyperedge_nodes) == 1
+    hyperedge_node, attrs = hyperedge_nodes[0]
+    assert attrs == {
+        "type": "hyperedge",
+        "hyperedge_id": "auth-flow",
+        "label": "Auth Flow",
+        "relation": "coordinates",
+        "confidence": "INFERRED",
+        "confidence_score": 0.75,
+        "source_file": "docs/auth.md",
+        "community": -1,
+    }
+    assert set(exported.neighbors(hyperedge_node)) == {"a", "b", "c"}
+    assert {
+        exported.edges[hyperedge_node, member]["relation"]
+        for member in exported.neighbors(hyperedge_node)
+    } == {"hyperedge_member"}
+
+
+def test_to_graphml_sanitizes_graph_node_and_edge_attributes(tmp_path):
+    G = nx.Graph(
+        title="Example",
+        ignored=None,
+        tags=["b", "a"],
+        config={"z": 1, "a": [2, 3]},
+        _origin="internal",
+    )
+    G.add_node(
+        "a",
+        optional=None,
+        values=(3, 2),
+        mapping={"b": 2, "a": 1},
+        path=Path("docs/example.md"),
+        _origin="ast",
+    )
+    G.add_node("b")
+    G.add_edge(
+        "a",
+        "b",
+        optional=None,
+        values=["x", "y"],
+        _src="a",
+        _tgt="b",
+    )
+
+    out = tmp_path / "graph.graphml"
+    to_graphml(G, {}, str(out))
+    exported = nx.read_graphml(out)
+
+    assert exported.graph["title"] == "Example"
+    assert exported.graph["tags"] == '["b","a"]'
+    assert exported.graph["config"] == '{"a":[2,3],"z":1}'
+    assert "ignored" not in exported.graph
+    assert "_origin" not in exported.graph
+    assert exported.nodes["a"]["values"] == "[3,2]"
+    assert exported.nodes["a"]["mapping"] == '{"a":1,"b":2}'
+    assert exported.nodes["a"]["path"] == "docs/example.md"
+    assert "optional" not in exported.nodes["a"]
+    assert "_origin" not in exported.nodes["a"]
+    assert exported.edges["a", "b"]["values"] == '["x","y"]'
+    assert "optional" not in exported.edges["a", "b"]
+    assert "_src" not in exported.edges["a", "b"]
+    assert "_tgt" not in exported.edges["a", "b"]
+
+
+@pytest.mark.parametrize(
+    ("graph", "expected_type", "directed"),
+    [
+        (nx.Graph([("a", "b")]), nx.Graph, False),
+        (nx.DiGraph([("a", "b")]), nx.DiGraph, True),
+    ],
+)
+def test_to_graphml_preserves_graph_direction(graph, expected_type, directed, tmp_path):
+    out = tmp_path / "graph.graphml"
+    to_graphml(graph, {}, str(out))
+
+    exported = nx.read_graphml(out)
+
+    assert type(exported) is expected_type
+    assert exported.is_directed() is directed
+
+
+def test_to_graphml_preserves_multigraph_parallel_edges(tmp_path):
+    G = nx.MultiGraph()
+    G.add_edge("a", "b", relation="first")
+    G.add_edge("a", "b", relation="second")
+
+    out = tmp_path / "graph.graphml"
+    to_graphml(G, {}, str(out))
+    exported = nx.read_graphml(out)
+
+    assert isinstance(exported, nx.MultiGraph)
+    assert not exported.is_directed()
+    assert {attrs["relation"] for _, _, attrs in exported.edges(data=True)} == {
+        "first",
+        "second",
+    }
+
+
+def test_to_graphml_hyperedge_node_ids_are_unique_and_collision_free(tmp_path):
+    G = nx.Graph()
+    G.add_nodes_from(["a", "__hyperedge__:duplicate", "__hyperedge__:duplicate:2"])
+    G.graph["hyperedges"] = [
+        {"id": "duplicate", "nodes": ["a"]},
+        {"id": "duplicate", "nodes": ["a"]},
+    ]
+
+    out = tmp_path / "graph.graphml"
+    to_graphml(G, {}, str(out))
+    exported = nx.read_graphml(out)
+
+    hyperedge_nodes = [
+        node
+        for node, attrs in exported.nodes(data=True)
+        if attrs.get("type") == "hyperedge"
+    ]
+    assert hyperedge_nodes == ["__hyperedge__:duplicate:3", "__hyperedge__:duplicate:4"]
+    assert [exported.nodes[node]["hyperedge_id"] for node in hyperedge_nodes] == ["duplicate", "duplicate"]
+
+
+def test_to_graphml_creates_placeholder_for_missing_hyperedge_member(tmp_path):
+    G = nx.Graph()
+    G.add_node("present")
+    G.graph["hyperedges"] = [{"id": "group", "members": ["present", "missing"]}]
+
+    out = tmp_path / "graph.graphml"
+    to_graphml(G, {}, str(out))
+    exported = nx.read_graphml(out)
+
+    assert exported.nodes["missing"] == {
+        "label": "missing",
+        "placeholder": True,
+        "community": -1,
+    }
+    assert exported.edges["__hyperedge__:group", "missing"]["relation"] == "hyperedge_member"
+
+
+def test_to_graphml_write_failure_preserves_existing_file(monkeypatch, tmp_path):
+    out = tmp_path / "graph.graphml"
+    out.write_text("previous graph", encoding="utf-8")
+
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setattr(nx, "write_graphml", fail_write)
+
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        to_graphml(nx.Graph(), {}, str(out))
+
+    assert out.read_text(encoding="utf-8") == "previous graph"
+    assert list(tmp_path.iterdir()) == [out]
+
 
 def test_to_html_creates_file():
     G = make_graph()

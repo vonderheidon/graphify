@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -1467,6 +1468,62 @@ def push_to_falkordb(
     return {"nodes": nodes_pushed, "edges": edges_pushed}
 
 
+def _graphml_json_value(value: object) -> object:
+    """Recursively normalize structured values before deterministic JSON encoding."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_graphml_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _graphml_json_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    return str(value)
+
+
+def _graphml_value(value: object) -> str | bool | int | float | None:
+    """Convert an attribute value to a type supported by NetworkX's GraphML writer."""
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, (list, tuple, dict)):
+        return json.dumps(
+            _graphml_json_value(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    return str(value)
+
+
+def _sanitize_graphml_attrs(attrs: dict) -> None:
+    """Remove private/empty attributes and normalize structured values in place."""
+    sanitized = {}
+    for key, value in attrs.items():
+        key = str(key)
+        if key.startswith("_"):
+            continue
+        value = _graphml_value(value)
+        if value is not None:
+            sanitized[key] = value
+    attrs.clear()
+    attrs.update(sanitized)
+
+
+def _unique_hyperedge_node_id(G: nx.Graph, hyperedge_id: object, index: int) -> str:
+    """Return a stable auxiliary-node ID that cannot collide with graph nodes."""
+    source_id = str(hyperedge_id) if hyperedge_id is not None else str(index)
+    base = f"__hyperedge__:{source_id}"
+    candidate = base
+    suffix = 2
+    while candidate in G:
+        candidate = f"{base}:{suffix}"
+        suffix += 1
+    return candidate
+
+
 def to_graphml(
     G: nx.Graph,
     communities: dict[int, list[str]],
@@ -1476,21 +1533,57 @@ def to_graphml(
 
     Community IDs are written as a node attribute so Gephi can colour by community.
     Edge confidence (EXTRACTED/INFERRED/AMBIGUOUS) is preserved as an edge attribute.
+    Hyperedges are materialized as auxiliary nodes connected to each member, retaining
+    their metadata without exposing the graph's internal persistence attributes.
+    The destination is replaced atomically only after NetworkX writes a valid file.
     """
     H = G.copy()
+    hyperedges = H.graph.pop("hyperedges", []) or []
+
+    for index, hyperedge in enumerate(hyperedges):
+        if not isinstance(hyperedge, dict):
+            continue
+        hyperedge_id = hyperedge.get("id")
+        node_id = _unique_hyperedge_node_id(H, hyperedge_id, index)
+        H.add_node(
+            node_id,
+            type="hyperedge",
+            hyperedge_id=hyperedge_id,
+            label=hyperedge.get("label"),
+            relation=hyperedge.get("relation"),
+            confidence=hyperedge.get("confidence"),
+            confidence_score=hyperedge.get("confidence_score"),
+            source_file=hyperedge.get("source_file"),
+        )
+        members = hyperedge.get("nodes") or hyperedge.get("members") or []
+        for member in members:
+            if member not in H:
+                H.add_node(member, label=str(member), placeholder=True)
+            H.add_edge(node_id, member, relation="hyperedge_member")
+
     node_community = _node_community_map(communities)
     for node_id in H.nodes():
         H.nodes[node_id]["community"] = node_community.get(node_id, -1)
-    # Drop internal markers (e.g. the AST-provenance "_origin" tag, #1116, and
-    # the "_src"/"_tgt" direction markers) — they are persistence/runtime details,
-    # not graph data, and should not leak into the exported file.
+
+    _sanitize_graphml_attrs(H.graph)
     for _, attrs in H.nodes(data=True):
-        for k in [k for k in attrs if k.startswith("_")]:
-            del attrs[k]
+        _sanitize_graphml_attrs(attrs)
     for _, _, attrs in H.edges(data=True):
-        for k in [k for k in attrs if k.startswith("_")]:
-            del attrs[k]
-    nx.write_graphml(H, output_path)
+        _sanitize_graphml_attrs(attrs)
+
+    destination = Path(output_path)
+    fd, temporary_path = tempfile.mkstemp(
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    try:
+        nx.write_graphml(H, temporary_path)
+        os.replace(temporary_path, destination)
+    except BaseException:
+        Path(temporary_path).unlink(missing_ok=True)
+        raise
 
 
 def to_svg(
