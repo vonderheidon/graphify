@@ -16,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 from graphify.file_slice import (
     FileSlice,
     bisect_slice,
@@ -122,6 +124,18 @@ BACKENDS: dict[str, dict] = {
         "temperature": 0,
         "vision": True,
     },
+    "opencode-go": {
+        "base_url": os.environ.get("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1"),
+        "default_model": os.environ.get("OPENCODE_GO_MODEL", "mimo-v2.5"),
+        "env_key": "OPENCODE_GO_API_KEY",
+        "model_env_key": "GRAPHIFY_OPENCODE_GO_MODEL",
+        "pricing": {"input": 0.0, "output": 0.0},
+        "temperature": 1,
+        "max_tokens": 16384,
+        "structured_outputs": "strict",
+        "label_model": os.environ.get("OPENCODE_GO_LABEL_MODEL", "kimi-k2.7-code"),
+        "label_temperature": 1,
+    },
     "deepseek": {
         # DEEPSEEK_BASE_URL points the backend at any OpenAI-compatible server for
         # DeepSeek models (LiteLLM, self-hosted proxy, ...). Falls back to DeepSeek's
@@ -173,6 +187,19 @@ BACKENDS: dict[str, dict] = {
         "vision": True,
     },
 }
+
+
+@dataclass(frozen=True)
+class LLMTextResponse:
+    content: str
+    finish_reason: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    model: str | None = None
+    request_id: str | None = None
+    refusal: str | None = None
+    content_filter: bool = False
 
 
 def _custom_providers_path(global_: bool = True) -> Path:
@@ -1863,6 +1890,18 @@ def _call_llm(
     exist in this module, so the LLM tiebreaker silently no-op'd on
     `ImportError` (F-038). Adding the function here re-enables it.
     """
+    return _call_llm_response(prompt, backend=backend, max_tokens=max_tokens, model=model).content
+
+
+def _call_llm_response(
+    prompt: str,
+    *,
+    backend: str,
+    max_tokens: int = 200,
+    model: str | None = None,
+    response_format: dict | None = None,
+) -> LLMTextResponse:
+    """Send a plain-text prompt to `backend` and return typed response metadata."""
     if backend not in BACKENDS:
         raise ValueError(f"Unknown backend {backend!r}")
     cfg = BACKENDS[backend]
@@ -1888,7 +1927,13 @@ def _call_llm(
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text if resp.content else ""
+        return LLMTextResponse(
+            content=resp.content[0].text if resp.content else "",
+            finish_reason=getattr(resp, "stop_reason", None),
+            input_tokens=getattr(resp.usage, "input_tokens", 0) if resp.usage else 0,
+            output_tokens=getattr(resp.usage, "output_tokens", 0) if resp.usage else 0,
+            model=mdl,
+        )
 
     if backend == "claude-cli":
         import platform, shutil, subprocess
@@ -1920,7 +1965,14 @@ def _call_llm(
         if proc.returncode != 0:
             raise RuntimeError(f"claude -p exited {proc.returncode}: {proc.stderr.strip()[:500]}")
         envelope = _claude_cli_envelope(proc.stdout)
-        return envelope.get("result", "")
+        usage = envelope.get("usage") or {}
+        return LLMTextResponse(
+            content=envelope.get("result", ""),
+            finish_reason=envelope.get("stop_reason"),
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            model=mdl,
+        )
 
 
     if backend == "bedrock":
@@ -1937,7 +1989,15 @@ def _call_llm(
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig=_bedrock_inference_config(max_tokens, mdl),
         )
-        return resp.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "")
+        usage = resp.get("usage") or {}
+        stop_reason = resp.get("stopReason")
+        return LLMTextResponse(
+            content=resp.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", ""),
+            finish_reason=stop_reason,
+            input_tokens=int(usage.get("inputTokens", 0) or 0),
+            output_tokens=int(usage.get("outputTokens", 0) or 0),
+            model=mdl,
+        )
 
     if backend == "azure":
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
@@ -1954,10 +2014,25 @@ def _call_llm(
         azure_temp = _resolve_temperature(cfg.get("temperature", 0), mdl)
         if azure_temp is not None:
             azure_kwargs["temperature"] = azure_temp
+        if response_format is not None:
+            azure_kwargs["response_format"] = response_format
         resp = azure_client.chat.completions.create(**azure_kwargs)
         if not resp.choices or resp.choices[0].message is None:
             raise ValueError("Azure OpenAI returned empty or filtered response")
-        return resp.choices[0].message.content or ""
+        choice = resp.choices[0]
+        usage = resp.usage
+        details = getattr(usage, "completion_tokens_details", None) if usage else None
+        return LLMTextResponse(
+            content=choice.message.content or "",
+            finish_reason=choice.finish_reason,
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
+            reasoning_tokens=getattr(details, "reasoning_tokens", 0) if details else 0,
+            model=mdl,
+            request_id=getattr(resp, "id", None),
+            refusal=getattr(choice.message, "refusal", None),
+            content_filter=choice.finish_reason == "content_filter",
+        )
 
     # OpenAI-compatible (kimi, openai, gemini, ollama)
     try:
@@ -1980,6 +2055,8 @@ def _call_llm(
         kwargs["temperature"] = temperature
     if cfg.get("reasoning_effort"):
         kwargs["reasoning_effort"] = cfg["reasoning_effort"]
+    if response_format is not None:
+        kwargs["response_format"] = response_format
     # Custom providers can override via providers.json `extra_body`; falls back
     # to the moonshot default to preserve existing behavior.
     if cfg.get("extra_body") is not None:
@@ -1989,7 +2066,20 @@ def _call_llm(
     resp = client.chat.completions.create(**kwargs)
     if not resp.choices or resp.choices[0].message is None:
         raise ValueError("LLM returned empty or filtered response")
-    return resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    usage = resp.usage
+    details = getattr(usage, "completion_tokens_details", None) if usage else None
+    return LLMTextResponse(
+        content=choice.message.content or "",
+        finish_reason=choice.finish_reason,
+        input_tokens=usage.prompt_tokens if usage else 0,
+        output_tokens=usage.completion_tokens if usage else 0,
+        reasoning_tokens=getattr(details, "reasoning_tokens", 0) if details else 0,
+        model=mdl,
+        request_id=getattr(resp, "id", None),
+        refusal=getattr(choice.message, "refusal", None),
+        content_filter=choice.finish_reason == "content_filter",
+    )
 
 
 def estimate_cost(backend: str, input_tokens: int, output_tokens: int) -> float:
@@ -2117,6 +2207,112 @@ _LABEL_MAX_COMMUNITIES = 200   # legacy soft-cap; kept for callers that pin it.
 _LABEL_TOP_K = 12              # node labels sampled per community for the prompt
 _LABEL_MAXLEN = 60             # truncate individual labels to keep the prompt small
 _LABEL_BATCH_SIZE = 100        # communities per LLM call; sized for ~16k context windows
+_LABEL_INITIAL_OUTPUT_TOKENS = 4096
+_LABEL_MAX_OUTPUT_TOKENS = 16384
+_LABEL_SCHEMA_NAME = "graphify_community_labels"
+
+
+def _label_response_schema(batch_cids: list[int]) -> dict:
+    enum = [str(cid) for cid in batch_cids]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["labels"],
+        "properties": {
+            "labels": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": len(batch_cids),
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["id", "name"],
+                    "properties": {
+                        "id": {"type": "string", "enum": enum},
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": _LABEL_MAXLEN,
+                            "pattern": r"^\S+(?:\s+\S+){1,4}$",
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+def _label_response_format(batch_cids: list[int]) -> dict:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": _LABEL_SCHEMA_NAME,
+            "strict": True,
+            "schema": _label_response_schema(batch_cids),
+        },
+    }
+
+
+def _normalize_label_text(name: str) -> str:
+    return " ".join(name.strip().split())
+
+
+def _validate_label_payload(data: object, batch_cids: list[int]) -> dict[int, str]:
+    schema = _label_response_schema(batch_cids)
+    Draft202012Validator(schema).validate(data)
+    allowed = set(batch_cids)
+    seen: set[int] = set()
+    out: dict[int, str] = {}
+    if not isinstance(data, dict):
+        raise ValueError("label response is not an object")
+    for item in data.get("labels", []):
+        cid = int(item["id"])
+        if cid not in allowed:
+            raise ValueError(f"label response named unknown community {cid}")
+        if cid in seen:
+            raise ValueError(f"label response duplicated community {cid}")
+        seen.add(cid)
+        out[cid] = _normalize_label_text(item["name"])
+    return out
+
+
+def _backend_uses_strict_label_schema(backend: str) -> bool:
+    cfg = BACKENDS.get(backend, {})
+    return cfg.get("structured_outputs") == "strict"
+
+
+def _label_max_tokens_for_attempt(batch_cids: list[int], attempt: int) -> int:
+    legacy = min(64 + 24 * len(batch_cids), 8192)
+    if attempt <= 0:
+        planned = max(_LABEL_INITIAL_OUTPUT_TOKENS, legacy)
+    elif attempt == 1:
+        planned = max(8192, legacy)
+    else:
+        planned = max(_LABEL_MAX_OUTPUT_TOKENS, legacy)
+    return _resolve_max_tokens(min(planned, _LABEL_MAX_OUTPUT_TOKENS))
+
+
+def _call_label_backend(
+    prompt: str,
+    batch_cids: list[int],
+    *,
+    backend: str,
+    model: str | None,
+    max_tokens: int,
+) -> LLMTextResponse:
+    if _backend_uses_strict_label_schema(backend):
+        label_model = model or BACKENDS[backend].get("label_model")
+        return _call_llm_response(
+            prompt,
+            backend=backend,
+            model=label_model,
+            max_tokens=max_tokens,
+            response_format=_label_response_format(batch_cids),
+        )
+    call_kwargs: dict = {"backend": backend, "max_tokens": max_tokens}
+    if model is not None:
+        call_kwargs["model"] = model
+    return LLMTextResponse(content=_call_llm(prompt, **call_kwargs), finish_reason="stop")
 
 
 def _placeholder_community_labels(communities) -> dict[int, str]:
@@ -2151,8 +2347,13 @@ def _community_label_lines(G, communities, gods, max_communities, top_k):
 
 
 def _parse_label_response(text: str, labeled_cids: list[int]) -> dict[int, str]:
-    """Parse the backend's JSON ``{cid: name}`` reply. Raises on non-JSON or a
-    non-object payload; silently ignores cids it didn't name."""
+    """Parse a label reply.
+
+    Preferred shape is ``{"labels": [{"id": "1", "name": "Payment Flow"}]}``
+    because it can be expressed as an OpenAI Structured Outputs schema. The old
+    ``{"1": "Payment Flow"}`` shape remains accepted for existing backends and
+    tests that mock `_call_llm` directly.
+    """
     cleaned = _LABEL_FENCE_RE.sub("", text.strip())
     if not cleaned.startswith("{"):
         start, end = cleaned.find("{"), cleaned.rfind("}")
@@ -2161,13 +2362,15 @@ def _parse_label_response(text: str, labeled_cids: list[int]) -> dict[int, str]:
     data = json.loads(cleaned)
     if not isinstance(data, dict):
         raise ValueError("label response is not a JSON object")
+    if "labels" in data:
+        return _validate_label_payload(data, labeled_cids)
     out: dict[int, str] = {}
     for cid in labeled_cids:
         name = data.get(str(cid))
         if name is None:
             name = data.get(cid)
         if isinstance(name, str) and name.strip():
-            out[cid] = name.strip()
+            out[cid] = _normalize_label_text(name)
     return out
 
 
@@ -2195,21 +2398,51 @@ def _label_batch_with_retry(
     missing config, programming bug) propagates unchanged — those are never
     split-retried.
     """
-    prompt = (
-        "You are naming clusters in a knowledge graph. For each community below, "
-        "return a concise 2-5 word plain-language name describing what it is about "
-        "(e.g. \"Order Management\", \"Payment Flow\", \"Auth Middleware\"). "
-        "Respond ONLY with a JSON object mapping the community id (as a string) to "
-        "its name - no prose, no markdown fences.\n\n" + "\n".join(batch_lines)
-    )
-    max_tokens = _resolve_max_tokens(min(64 + 24 * len(batch_cids), 8192))
-    call_kwargs: dict = {"backend": backend, "max_tokens": max_tokens}
-    if model is not None:
-        call_kwargs["model"] = model
+    collected: dict[int, str] = {}
+    pending_cids = list(batch_cids)
+    pending_lines = list(batch_lines)
 
     try:
-        text = _call_llm(prompt, **call_kwargs)
-        return _parse_label_response(text, batch_cids)
+        for attempt in range(3):
+            attempt_prompt = (
+                "You are naming clusters in a knowledge graph. For each community below, "
+                "return a concise 2-5 word plain-language name describing what it is about "
+                "(e.g. \"Order Management\", \"Payment Flow\", \"Auth Middleware\"). "
+                "Respond ONLY with JSON. Preferred shape: "
+                '{"labels":[{"id":"<community-id>","name":"Two To Five Words"}]}. '
+                "Do not include prose or markdown fences.\n\n" + "\n".join(pending_lines)
+            )
+            response = _call_label_backend(
+                attempt_prompt,
+                pending_cids,
+                backend=backend,
+                model=model,
+                max_tokens=_label_max_tokens_for_attempt(pending_cids, attempt),
+            )
+            if response.refusal:
+                raise ValueError(f"label response refused: {response.refusal}")
+            if response.content_filter:
+                raise ValueError("label response blocked by content filter")
+            parsed = _parse_label_response(response.content, pending_cids)
+            collected.update(parsed)
+            missing = [cid for cid in pending_cids if cid not in parsed]
+            if not missing:
+                return collected
+            missing_set = set(missing)
+            pending_lines = [
+                line for cid, line in zip(pending_cids, pending_lines, strict=False)
+                if cid in missing_set
+            ]
+            pending_cids = missing
+            if response.finish_reason == "length":
+                continue
+            if not _backend_uses_strict_label_schema(backend):
+                # Preserve legacy behavior: a partial JSON object is accepted and
+                # the caller leaves remaining communities as placeholders.
+                return collected
+        if collected:
+            return collected
+        raise ValueError("label response did not contain any requested community ids")
     except (json.JSONDecodeError, ValueError) as exc:
         # Parse failure. If we can still split, retry each half on a smaller
         # prompt (smaller output → less likely to truncate/mangle). At the base

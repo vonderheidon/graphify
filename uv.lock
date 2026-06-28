@@ -1150,9 +1150,10 @@ wheels = [
 
 [[package]]
 name = "graphifyy"
-version = "0.8.50"
+version = "0.8.50+vonderheidon.1"
 source = { editable = "." }
 dependencies = [
+    { name = "jsonschema" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
@@ -1317,6 +1318,7 @@ requires-dist = [
     { name = "graspologic", marker = "python_full_version < '3.13' and extra == 'leiden'" },
     { name = "jieba", marker = "extra == 'all'" },
     { name = "jieba", marker = "extra == 'chinese'" },
+    { name = "jsonschema", specifier = ">=4.0" },
     { name = "markdownify", marker = "extra == 'all'" },
     { name = "markdownify", marker = "extra == 'pdf'" },
     { name = "matplotlib", marker = "extra == 'all'" },

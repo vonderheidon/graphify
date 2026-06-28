@@ -9,6 +9,7 @@ import sys
 import networkx as nx
 import pytest
 
+from graphify import llm
 from graphify.llm import label_communities, generate_community_labels
 
 
@@ -410,3 +411,87 @@ def test_label_communities_forces_serial_for_ollama(monkeypatch):
     monkeypatch.delenv("GRAPHIFY_OLLAMA_PARALLEL", raising=False)
     label_communities(G, communities, backend="ollama", batch_size=1, max_concurrency=8)
     assert state["peak"] == 1, "ollama must be forced serial"
+
+
+def test_opencode_go_uses_strict_schema_and_label_model(monkeypatch):
+    G, communities = _graph()
+    captured = {}
+
+    def fake_response(prompt, *, backend, max_tokens=200, model=None, response_format=None):
+        captured["backend"] = backend
+        captured["model"] = model
+        captured["response_format"] = response_format
+        captured["max_tokens"] = max_tokens
+        return llm.LLMTextResponse(
+            content=json.dumps({
+                "labels": [
+                    {"id": "0", "name": "Order Management"},
+                    {"id": "1", "name": "Payment Flow"},
+                ],
+            }),
+            finish_reason="stop",
+        )
+
+    monkeypatch.setattr("graphify.llm._call_llm_response", fake_response)
+    labels = label_communities(G, communities, backend="opencode-go", batch_size=15)
+
+    assert labels == {0: "Order Management", 1: "Payment Flow"}
+    assert captured["backend"] == "opencode-go"
+    assert captured["model"] == "kimi-k2.7-code"
+    assert captured["max_tokens"] == 4096
+    assert captured["response_format"]["type"] == "json_schema"
+    assert captured["response_format"]["json_schema"]["strict"] is True
+    schema = captured["response_format"]["json_schema"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["labels"]["items"]["additionalProperties"] is False
+    assert schema["properties"]["labels"]["items"]["properties"]["id"]["enum"] == ["0", "1"]
+
+
+def test_strict_label_retry_increases_tokens_on_length(monkeypatch):
+    G, communities = _graph()
+    calls = []
+
+    def fake_response(prompt, *, backend, max_tokens=200, model=None, response_format=None):
+        calls.append(max_tokens)
+        if len(calls) == 1:
+            return llm.LLMTextResponse(content='{"labels":[]}', finish_reason="length")
+        return llm.LLMTextResponse(
+            content=json.dumps({
+                "labels": [
+                    {"id": "0", "name": "Order Management"},
+                    {"id": "1", "name": "Payment Flow"},
+                ],
+            }),
+            finish_reason="stop",
+        )
+
+    monkeypatch.setattr("graphify.llm._call_llm_response", fake_response)
+    labels = label_communities(G, communities, backend="opencode-go", batch_size=15)
+
+    assert labels == {0: "Order Management", 1: "Payment Flow"}
+    assert calls == [4096, 8192]
+
+
+def test_strict_label_partial_retries_missing_only(monkeypatch):
+    G, communities = _graph()
+    prompts = []
+
+    def fake_response(prompt, *, backend, max_tokens=200, model=None, response_format=None):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return llm.LLMTextResponse(
+                content=json.dumps({"labels": [{"id": "0", "name": "Order Management"}]}),
+                finish_reason="stop",
+            )
+        assert "Community 0:" not in prompt
+        assert "Community 1:" in prompt
+        return llm.LLMTextResponse(
+            content=json.dumps({"labels": [{"id": "1", "name": "Payment Flow"}]}),
+            finish_reason="stop",
+        )
+
+    monkeypatch.setattr("graphify.llm._call_llm_response", fake_response)
+    labels = label_communities(G, communities, backend="opencode-go", batch_size=15)
+
+    assert labels == {0: "Order Management", 1: "Payment Flow"}
+    assert len(prompts) == 2
