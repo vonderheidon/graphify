@@ -1860,6 +1860,22 @@ def extract_corpus_parallel(
             " — see errors above. Partial results returned.",
             file=sys.stderr,
         )
+    from .token_usage import token_usage
+    tracked = total - merged["failed_chunks"]
+    untracked = merged["failed_chunks"]
+    if tracked and untracked:
+        usage_status = "partial"
+    elif tracked:
+        usage_status = "complete"
+    elif untracked:
+        usage_status = "unavailable"
+    else:
+        usage_status = "not-used"
+    merged["token_usage"] = token_usage(
+        usage_status,
+        tracked_chunks=tracked,
+        untracked_chunks=untracked,
+    )
     return merged
 
 

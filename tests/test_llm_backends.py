@@ -196,6 +196,7 @@ def test_str_path_entry_points_handle_edge_cases(tmp_path, monkeypatch):
         # empty list: no chunks, nothing to extract, no crash
         empty = llm.extract_corpus_parallel([], backend="gemini", root=tmp_path)
         assert empty["nodes"] == [] and empty["failed_chunks"] == 0
+        assert empty["token_usage"]["status"] == "not-used"
         # a Path subclass is still a Path and must pass through unchanged
         class _SubPath(type(Path())):  # concrete OS-specific Path subclass
             pass

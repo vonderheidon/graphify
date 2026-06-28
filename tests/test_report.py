@@ -52,8 +52,25 @@ def test_report_contains_ambiguous_section():
 def test_report_shows_token_cost():
     G, communities, cohesion, labels, gods, surprises, detection, tokens = make_inputs()
     report = generate(G, communities, cohesion, labels, gods, surprises, detection, tokens, "./project")
-    assert "Token cost" in report
+    assert "Token usage" in report
     assert "1,200" in report
+
+def test_report_shows_unavailable_instead_of_false_zero():
+    G, communities, cohesion, labels, gods, surprises, detection, _ = make_inputs()
+    tokens = {
+        "input": 0,
+        "output": 0,
+        "token_usage": {
+            "status": "unavailable",
+            "tracked_chunks": 0,
+            "untracked_chunks": 1,
+        },
+    }
+    report = generate(
+        G, communities, cohesion, labels, gods, surprises, detection, tokens, "./project"
+    )
+    assert "Token usage: unavailable" in report
+    assert "Token usage: 0 input" not in report
 
 def test_report_shows_raw_cohesion_scores():
     G, communities, cohesion, labels, gods, surprises, detection, tokens = make_inputs()

@@ -842,6 +842,58 @@ def _is_no_api_key_fix_line(line: str) -> bool:
     return "graphify needs no API key" in line
 
 
+def _is_token_usage_fix_line(line: str) -> bool:
+    """Whether a line belongs to honest host-agent token accounting.
+
+    Host tools do not always expose a ``usage`` object. The generated runbooks
+    now preserve numeric known totals while carrying a separate completeness
+    state through chunks, reports, and cost.json.
+    """
+    stripped = line.strip()
+    return (
+        "token_usage" in line
+        or "token usage" in line
+        or "graphify.token_usage" in line
+        or "real token counts from" in line
+        or "inspect the tool result's `usage` field" in line
+        or "inspect the host result's `usage` field" in line
+        or "If `usage` is present" in line
+        or "If `usage` is absent" in line
+        or "Never interpret missing usage as zero" in line
+        or "known totals only" in line
+        or stripped.startswith("**Fast path:** If detection found zero docs")
+        or stripped in {"Then run:", "Then merge:"}
+        or ".graphify_semantic_new.json" in line
+        or stripped.startswith("print(f'Merged {len(chunks)} chunks:")
+        or stripped == "}, indent=2))"
+        or stripped == "tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}"
+        or stripped == "all_nodes, all_edges, all_hyperedges = [], [], []"
+        or stripped == "if cost_path.exists():"
+        or stripped.startswith("cost = json.loads(cost_path.read_text())")
+        or stripped.startswith("cost = {'runs': []")
+        or stripped.startswith("cost['runs'].append(")
+        or stripped.startswith("cost['total_input_tokens']")
+        or stripped.startswith("cost['total_output_tokens']")
+        or stripped.startswith("cost = append_cost_run(")
+        or stripped.startswith("usage = extract.get(")
+        or stripped.startswith("input_tokens=input_tok")
+        or stripped.startswith("output_tokens=output_tok")
+        or stripped.startswith("files=detect.get(")
+        or stripped.startswith("date=datetime.now(")
+        or stripped in {
+            "'date': datetime.now(timezone.utc).isoformat(),",
+            "'input_tokens': input_tok,",
+            "'output_tokens': output_tok,",
+            "'files': detect.get('total_files', 0),",
+            "})",
+        }
+        or stripped.startswith("print(f'This run:")
+        or stripped.startswith("print('This run:")
+        or stripped.startswith("print(f'All time:")
+        or stripped.startswith("print(f'All time known totals:")
+    )
+
+
 # Every line that may differ between a rendered monolith and its pristine v8
 # baseline. Each predicate documents one sanctioned change-class; a blank line is
 # allowed because the multi-line fix blocks insert spacing. Anything else failing
@@ -856,6 +908,7 @@ _SANCTIONED_MONOLITH_DIFFS = (
     _is_zero_node_guard_fix_line,
     _is_manifest_root_fix_line,
     _is_no_api_key_fix_line,
+    _is_token_usage_fix_line,
 )
 
 

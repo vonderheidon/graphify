@@ -113,7 +113,7 @@ This step has two parts: **structural extraction** (deterministic, free) and **s
 > **graphify needs no API key. Never ask the user for one, and never block on one.** Code is extracted structurally (AST) with no LLM and no key at all — a code-only corpus (the common `/graphify .` on a repo) skips semantic extraction entirely, so it needs nothing here: go straight to Part A and skip Part B. Semantic extraction (only for docs, papers, and images) uses Gemini **only if** `GEMINI_API_KEY`/`GOOGLE_API_KEY` is already set; otherwise the host agent itself is the LLM. graphify does **not** read `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any other provider key. If you catch yourself about to prompt for, wait on, or stop because of a missing API key, that is a misread of this skill — proceed without one.
 
 **Before semantic extraction:** check whether `GEMINI_API_KEY` or `GOOGLE_API_KEY` is set. If neither is set, print this one-liner to the user:
-> Tip: set `GEMINI_API_KEY` or `GOOGLE_API_KEY` to use Gemini for semantic extraction (`pip install 'graphifyy[gemini]'`).
+> Tip: set `GEMINI_API_KEY` or `GOOGLE_API_KEY` to use Gemini for semantic extraction (`uv tool install --force 'graphifyy[gemini]'`; use `pip install 'graphifyy[gemini]'` only when graphify itself is installed in that same Python environment).
 
 Print it once, then continue — do not wait for the user to supply a key. If `GEMINI_API_KEY` or `GOOGLE_API_KEY` IS set, use `graphify.llm.extract_corpus_parallel(files, backend="gemini")` for semantic extraction instead of dispatching subagents. The default Gemini model is `gemini-3-flash-preview`; set `GRAPHIFY_GEMINI_MODEL` or pass `--model` in headless CLI flows to override it.
 
@@ -157,7 +157,11 @@ else:
 $(cat graphify-out/.graphify_python) -c "
 import json
 from pathlib import Path
-Path('graphify-out/.graphify_semantic.json').write_text(json.dumps({'nodes':[],'edges':[],'hyperedges':[],'input_tokens':0,'output_tokens':0}), encoding='utf-8')
+Path('graphify-out/.graphify_semantic.json').write_text(json.dumps({
+    'nodes': [], 'edges': [], 'hyperedges': [],
+    'input_tokens': 0, 'output_tokens': 0,
+    'token_usage': {'status': 'not-used', 'tracked_chunks': 0, 'untracked_chunks': 0},
+}), encoding='utf-8')
 "
 ```
 
@@ -216,27 +220,35 @@ Wait for all subagents. For each result:
 
 If more than half the chunks failed or are missing, stop and tell the user to re-run and ensure `subagent_type="general-purpose"` is used.
 
-Merge all chunk files into `.graphify_semantic_new.json`. **After each Agent call completes, read the real token counts from the Agent tool result's `usage` field and write them back into the chunk JSON before merging** — the chunk JSON itself always has placeholder zeros. Then run:
+Merge all chunk files into `.graphify_semantic_new.json`. **After each Agent call completes, inspect the tool result's `usage` field and mark that chunk explicitly before merging**:
+- If `usage` is present, write its exact counts to `input_tokens` / `output_tokens` and add `"token_usage":{"status":"complete","tracked_chunks":1,"untracked_chunks":0}`.
+- If `usage` is absent, keep the numeric placeholders as known totals only and add `"token_usage":{"status":"unavailable","tracked_chunks":0,"untracked_chunks":1}`. Never interpret missing usage as zero.
+
+Then run:
 ```bash
 $(cat graphify-out/.graphify_python) -c "
 import json, glob
 from pathlib import Path
+from graphify.token_usage import combine_token_usage, format_token_usage
 
 chunks = sorted(glob.glob('graphify-out/.graphify_chunk_*.json'))
-all_nodes, all_edges, all_hyperedges = [], [], []
+all_nodes, all_edges, all_hyperedges, usage_payloads = [], [], [], []
 total_in, total_out = 0, 0
 for c in chunks:
     d = json.loads(Path(c).read_text(encoding=\"utf-8\"))
     all_nodes += d.get('nodes', [])
     all_edges += d.get('edges', [])
     all_hyperedges += d.get('hyperedges', [])
+    usage_payloads.append(d)
     total_in += d.get('input_tokens', 0)
     total_out += d.get('output_tokens', 0)
 Path('graphify-out/.graphify_semantic_new.json').write_text(json.dumps({
     'nodes': all_nodes, 'edges': all_edges, 'hyperedges': all_hyperedges,
     'input_tokens': total_in, 'output_tokens': total_out,
+    'token_usage': combine_token_usage(usage_payloads),
 }, indent=2, ensure_ascii=False), encoding=\"utf-8\")
-print(f'Merged {len(chunks)} chunks: {total_in:,} in / {total_out:,} out tokens')
+usage = json.loads(Path('graphify-out/.graphify_semantic_new.json').read_text(encoding=\"utf-8\"))['token_usage']
+print(f'Merged {len(chunks)} chunks: ' + format_token_usage(total_in, total_out, usage))
 "
 ```
 
@@ -247,7 +259,7 @@ import json
 from graphify.cache import save_semantic_cache
 from pathlib import Path
 
-new = json.loads(Path('graphify-out/.graphify_semantic_new.json').read_text(encoding=\"utf-8\")) if Path('graphify-out/.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
+new = json.loads(Path('graphify-out/.graphify_semantic_new.json').read_text(encoding=\"utf-8\")) if Path('graphify-out/.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[],'input_tokens':0,'output_tokens':0,'token_usage':{'status':'not-used','tracked_chunks':0,'untracked_chunks':0}}
 saved = save_semantic_cache(new.get('nodes', []), new.get('edges', []), new.get('hyperedges', []), root='INPUT_PATH')
 print(f'Cached {saved} files')
 "
@@ -278,6 +290,7 @@ merged = {
     'hyperedges': all_hyperedges,
     'input_tokens': new.get('input_tokens', 0),
     'output_tokens': new.get('output_tokens', 0),
+    'token_usage': new.get('token_usage', {'status':'legacy','tracked_chunks':0,'untracked_chunks':0}),
 }
 Path('graphify-out/.graphify_semantic.json').write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding=\"utf-8\")
 print(f'Extraction complete - {len(deduped)} nodes, {len(all_edges)} edges ({len(cached[\"nodes\"])} from cache, {len(new.get(\"nodes\",[]))} new)')
@@ -311,6 +324,7 @@ merged = {
     'hyperedges': merged_hyperedges,
     'input_tokens': sem.get('input_tokens', 0),
     'output_tokens': sem.get('output_tokens', 0),
+    'token_usage': sem.get('token_usage', {'status':'legacy','tracked_chunks':0,'untracked_chunks':0}),
 }
 Path('graphify-out/.graphify_extract.json').write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding=\"utf-8\")
 total = len(merged_nodes)
@@ -348,7 +362,11 @@ if G.number_of_nodes() == 0:
     raise SystemExit(1)
 communities = cluster(G)
 cohesion = score_all(G, communities)
-tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}
+tokens = {
+    'input': extraction.get('input_tokens', 0),
+    'output': extraction.get('output_tokens', 0),
+    'token_usage': extraction.get('token_usage'),
+}
 gods = god_nodes(G)
 surprises = surprising_connections(G, communities)
 labels = {cid: 'Community ' + str(cid) for cid in communities}
@@ -431,7 +449,11 @@ analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text(e
 G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 cohesion = {int(k): v for k, v in analysis['cohesion'].items()}
-tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}
+tokens = {
+    'input': extraction.get('input_tokens', 0),
+    'output': extraction.get('output_tokens', 0),
+    'token_usage': extraction.get('token_usage'),
+}
 
 # LABELS - replace these with the names you chose above
 labels = LABELS_DICT
@@ -483,6 +505,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from graphify.detect import save_manifest
+from graphify.token_usage import append_cost_run, format_token_usage
 
 # Save manifest for --update
 detect = json.loads(Path('graphify-out/.graphify_detect.json').read_text(encoding=\"utf-8\"))
@@ -499,23 +522,20 @@ input_tok = extract.get('input_tokens', 0)
 output_tok = extract.get('output_tokens', 0)
 
 cost_path = Path('graphify-out/cost.json')
-if cost_path.exists():
-    cost = json.loads(cost_path.read_text(encoding=\"utf-8\"))
-else:
-    cost = {'runs': [], 'total_input_tokens': 0, 'total_output_tokens': 0}
-
-cost['runs'].append({
-    'date': datetime.now(timezone.utc).isoformat(),
-    'input_tokens': input_tok,
-    'output_tokens': output_tok,
-    'files': detect.get('total_files', 0),
-})
-cost['total_input_tokens'] += input_tok
-cost['total_output_tokens'] += output_tok
+cost = json.loads(cost_path.read_text(encoding=\"utf-8\")) if cost_path.exists() else {}
+usage = extract.get('token_usage')
+cost = append_cost_run(
+    cost,
+    input_tokens=input_tok,
+    output_tokens=output_tok,
+    files=detect.get('total_files', 0),
+    usage=usage,
+    date=datetime.now(timezone.utc).isoformat(),
+)
 cost_path.write_text(json.dumps(cost, indent=2, ensure_ascii=False), encoding=\"utf-8\")
 
-print(f'This run: {input_tok:,} input tokens, {output_tok:,} output tokens')
-print(f'All time: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs)')
+print('This run: ' + format_token_usage(input_tok, output_tok, usage))
+print(f'All time known totals: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs; see per-run token_usage status)')
 "
 rm -f graphify-out/.graphify_detect.json graphify-out/.graphify_extract.json graphify-out/.graphify_ast.json graphify-out/.graphify_semantic.json graphify-out/.graphify_analysis.json
 find graphify-out -maxdepth 1 -name '.graphify_chunk_*.json' -delete 2>/dev/null

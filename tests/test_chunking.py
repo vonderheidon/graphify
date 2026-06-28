@@ -175,6 +175,11 @@ def test_corpus_parallel_runs_chunks_concurrently(tmp_path):
     # 4 chunks × 0.3s sequential = 1.2s. Parallel with 4 workers should land near 0.3-0.5s.
     assert elapsed < 1.0, f"expected parallel speedup, took {elapsed:.2f}s"
     assert len(result["nodes"]) == 8
+    assert result["token_usage"] == {
+        "status": "complete",
+        "tracked_chunks": 4,
+        "untracked_chunks": 0,
+    }
 
 
 def test_corpus_parallel_sequential_when_max_concurrency_is_one(tmp_path):

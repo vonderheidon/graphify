@@ -495,6 +495,26 @@ def test_monoliths_change_only_sanctioned_lines():
         assert UNIFIED_DESCRIPTION in rendered
 
 
+def test_generated_runbooks_preserve_token_usage_completeness():
+    """Every host distinguishes missing usage from a legitimate zero."""
+    platforms = gen.load_platforms()
+    for key, platform in platforms.items():
+        body = gen.render(platform)[0].content
+        assert '"status":"unavailable"' in body or "'status':'unavailable'" in body, key
+        assert "Never interpret missing usage as zero" in body, key
+        assert "append_cost_run" in body, key
+        assert "token_usage" in body, key
+
+
+def test_split_runbooks_install_gemini_extra_into_uv_tool_environment():
+    platforms = gen.load_platforms()
+    for key, platform in platforms.items():
+        if platform.bucket != "split":
+            continue
+        body = gen.render(platform)[0].content
+        assert "uv tool install --force 'graphifyy[gemini]'" in body, key
+
+
 def test_monoliths_carry_the_1392_runbook_fixes():
     """The four #1392 data-loss/correctness fixes are present in both monoliths.
 

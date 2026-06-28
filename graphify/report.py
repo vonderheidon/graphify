@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 import networkx as nx
+from .token_usage import format_token_usage
 
 
 def _safe_community_name(label: str) -> str:
@@ -71,7 +72,11 @@ def generate(
         + (f" ({shown_count} shown, {thin_count_summary} thin omitted)" if thin_count_summary else ""),
         f"- Extraction: {ext_pct}% EXTRACTED · {inf_pct}% INFERRED · {amb_pct}% AMBIGUOUS"
         + (f" · INFERRED: {len(inf_edges)} edges (avg confidence: {inf_avg})" if inf_avg is not None else ""),
-        f"- Token cost: {token_cost.get('input', 0):,} input · {token_cost.get('output', 0):,} output",
+        "- Token usage: " + format_token_usage(
+            token_cost.get("input", 0),
+            token_cost.get("output", 0),
+            token_cost.get("token_usage"),
+        ),
     ]
 
     if built_at_commit:

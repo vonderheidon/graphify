@@ -211,7 +211,8 @@ else:
 
 #### Part B - Semantic extraction (parallel subagents)
 
-**Fast path:** If detection found zero docs, papers, and images (code-only corpus), skip Part B entirely and go straight to Part C. AST handles code - there is nothing for semantic subagents to do.
+**Fast path:** If detection found zero docs, papers, and images (code-only corpus), skip Part B entirely and go straight to Part C. AST handles code - there is nothing for semantic subagents to do. Write `.graphify_semantic.json` with:
+`{"nodes":[],"edges":[],"hyperedges":[],"input_tokens":0,"output_tokens":0,"token_usage":{"status":"not-used","tracked_chunks":0,"untracked_chunks":0}}`.
 
 > **Aider platform:** Multi-agent support is still early on Aider. Extraction runs sequentially — you read and extract each file yourself. This is slower than parallel platforms but fully reliable.
 
@@ -281,27 +282,35 @@ For the accumulated result:
 
 If more than half the chunks failed, stop and tell the user.
 
-Merge all chunk files into `.graphify_semantic_new.json`. **After each Agent call completes, read the real token counts from the Agent tool result's `usage` field and write them back into the chunk JSON before merging** — the chunk JSON itself always has placeholder zeros. Then run:
+Merge all chunk files into `.graphify_semantic_new.json`. **After each extraction call completes, inspect the host result's `usage` field and mark that chunk explicitly before merging**:
+- If `usage` is present, write its exact counts to `input_tokens` / `output_tokens` and add `"token_usage":{"status":"complete","tracked_chunks":1,"untracked_chunks":0}`.
+- If `usage` is absent, keep the numeric placeholders as known totals only and add `"token_usage":{"status":"unavailable","tracked_chunks":0,"untracked_chunks":1}`. Never interpret missing usage as zero.
+
+Then run:
 ```bash
 $(cat graphify-out/.graphify_python) -c "
 import json, glob
 from pathlib import Path
+from graphify.token_usage import combine_token_usage, format_token_usage
 
 chunks = sorted(glob.glob('graphify-out/.graphify_chunk_*.json'))
-all_nodes, all_edges, all_hyperedges = [], [], []
+all_nodes, all_edges, all_hyperedges, usage_payloads = [], [], [], []  # token usage
 total_in, total_out = 0, 0
 for c in chunks:
     d = json.loads(Path(c).read_text())
     all_nodes += d.get('nodes', [])
     all_edges += d.get('edges', [])
     all_hyperedges += d.get('hyperedges', [])
+    usage_payloads.append(d)  # token usage
     total_in += d.get('input_tokens', 0)
     total_out += d.get('output_tokens', 0)
 Path('graphify-out/.graphify_semantic_new.json').write_text(json.dumps({
     'nodes': all_nodes, 'edges': all_edges, 'hyperedges': all_hyperedges,
     'input_tokens': total_in, 'output_tokens': total_out,
-}, indent=2))
-print(f'Merged {len(chunks)} chunks: {total_in:,} in / {total_out:,} out tokens')
+    'token_usage': combine_token_usage(usage_payloads),
+}, indent=2))  # token usage
+usage = json.loads(Path('graphify-out/.graphify_semantic_new.json').read_text())['token_usage']
+print(f'Merged {len(chunks)} chunks: ' + format_token_usage(total_in, total_out, usage))
 "
 ```
 
@@ -312,7 +321,7 @@ import json
 from graphify.cache import save_semantic_cache
 from pathlib import Path
 
-new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
+new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[],'input_tokens':0,'output_tokens':0,'token_usage':{'status':'not-used','tracked_chunks':0,'untracked_chunks':0}}
 saved = save_semantic_cache(new.get('nodes', []), new.get('edges', []), new.get('hyperedges', []))
 print(f'Cached {saved} files')
 "
@@ -325,7 +334,7 @@ import json
 from pathlib import Path
 
 cached = json.loads(Path('.graphify_cached.json').read_text()) if Path('.graphify_cached.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
-new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
+new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[],'input_tokens':0,'output_tokens':0,'token_usage':{'status':'not-used','tracked_chunks':0,'untracked_chunks':0}}
 
 all_nodes = cached['nodes'] + new.get('nodes', [])
 all_edges = cached['edges'] + new.get('edges', [])
@@ -343,6 +352,7 @@ merged = {
     'hyperedges': all_hyperedges,
     'input_tokens': new.get('input_tokens', 0),
     'output_tokens': new.get('output_tokens', 0),
+    'token_usage': new.get('token_usage', {'status':'legacy','tracked_chunks':0,'untracked_chunks':0}),
 }
 Path('.graphify_semantic.json').write_text(json.dumps(merged, indent=2))
 print(f'Extraction complete - {len(deduped)} nodes, {len(all_edges)} edges ({len(cached[\"nodes\"])} from cache, {len(new.get(\"nodes\",[]))} new)')
@@ -376,6 +386,7 @@ merged = {
     'hyperedges': merged_hyperedges,
     'input_tokens': sem.get('input_tokens', 0),
     'output_tokens': sem.get('output_tokens', 0),
+    'token_usage': sem.get('token_usage', {'status':'legacy','tracked_chunks':0,'untracked_chunks':0}),
 }
 Path('.graphify_extract.json').write_text(json.dumps(merged, indent=2))
 total = len(merged_nodes)
@@ -411,7 +422,7 @@ if G.number_of_nodes() == 0:
     raise SystemExit(1)
 communities = cluster(G)
 cohesion = score_all(G, communities)
-tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}
+tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0), 'token_usage': extraction.get('token_usage')}
 gods = god_nodes(G)
 surprises = surprising_connections(G, communities)
 labels = {cid: 'Community ' + str(cid) for cid in communities}
@@ -466,7 +477,7 @@ analysis   = json.loads(Path('.graphify_analysis.json').read_text())
 G = build_from_json(extraction, directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 cohesion = {int(k): v for k, v in analysis['cohesion'].items()}
-tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}
+tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0), 'token_usage': extraction.get('token_usage')}
 
 # LABELS - replace these with the names you chose above
 labels = LABELS_DICT
@@ -673,6 +684,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from graphify.detect import save_manifest
+from graphify.token_usage import append_cost_run, format_token_usage
 
 # Save manifest for --update
 detect = json.loads(Path('.graphify_detect.json').read_text())
@@ -684,23 +696,20 @@ input_tok = extract.get('input_tokens', 0)
 output_tok = extract.get('output_tokens', 0)
 
 cost_path = Path('graphify-out/cost.json')
-if cost_path.exists():
-    cost = json.loads(cost_path.read_text())
-else:
-    cost = {'runs': [], 'total_input_tokens': 0, 'total_output_tokens': 0}
-
-cost['runs'].append({
-    'date': datetime.now(timezone.utc).isoformat(),
-    'input_tokens': input_tok,
-    'output_tokens': output_tok,
-    'files': detect.get('total_files', 0),
-})
-cost['total_input_tokens'] += input_tok
-cost['total_output_tokens'] += output_tok
+cost = json.loads(cost_path.read_text()) if cost_path.exists() else {}
+usage = extract.get('token_usage')
+cost = append_cost_run(
+    cost,  # token usage
+    input_tokens=input_tok,
+    output_tokens=output_tok,
+    files=detect.get('total_files', 0),
+    usage=usage,  # token usage
+    date=datetime.now(timezone.utc).isoformat(),
+)  # token usage
 cost_path.write_text(json.dumps(cost, indent=2))
 
-print(f'This run: {input_tok:,} input tokens, {output_tok:,} output tokens')
-print(f'All time: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs)')
+print('This run: ' + format_token_usage(input_tok, output_tok, usage))
+print(f'All time known totals: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs; see per-run token_usage status)')
 "
 rm -f .graphify_detect.json .graphify_extract.json .graphify_ast.json .graphify_semantic.json .graphify_analysis.json .graphify_labels.json; find . -maxdepth 1 -name '.graphify_chunk_*.json' -delete 2>/dev/null
 rm -f graphify-out/.needs_update 2>/dev/null || true

@@ -3478,7 +3478,15 @@ def main() -> None:
             )
             labels.update(generated_labels)
         questions = suggest_questions(G, communities, labels)
-        tokens = {"input": 0, "output": 0}
+        tokens = {
+            "input": 0,
+            "output": 0,
+            "token_usage": {
+                "status": "not-used",
+                "tracked_chunks": 0,
+                "untracked_chunks": 0,
+            },
+        }
         from graphify.export import _git_head as _gh
         _commit = _gh()
         report = generate(G, communities, cohesion, labels, gods, surprises,

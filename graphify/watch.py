@@ -777,7 +777,15 @@ def _rebuild_code(
                 labels[cid] = "Community " + str(cid)
         questions = suggest_questions(G, communities, labels)
         report = generate(G, communities, cohesion, labels, gods, surprises, detection,
-                          {"input": 0, "output": 0}, report_root, suggested_questions=questions,
+                          {
+                              "input": 0,
+                              "output": 0,
+                              "token_usage": {
+                                  "status": "not-used",
+                                  "tracked_chunks": 0,
+                                  "untracked_chunks": 0,
+                              },
+                          }, report_root, suggested_questions=questions,
                           built_at_commit=commit)
         report_path = out / "GRAPH_REPORT.md"
         labels_json = json.dumps({str(k): v for k, v in sorted(labels.items())}, ensure_ascii=False, indent=2) + "\n"

@@ -1150,7 +1150,7 @@ wheels = [
 
 [[package]]
 name = "graphifyy"
-version = "0.8.50+vonderheidon.2"
+version = "0.8.50+vonderheidon.3"
 source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
