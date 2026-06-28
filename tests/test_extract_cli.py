@@ -123,6 +123,57 @@ def test_extract_succeeds_when_at_least_one_chunk_completes(
     )
 
 
+def test_no_cluster_records_honest_native_token_usage(monkeypatch, tmp_path):
+    corpus = _make_corpus(tmp_path)
+    out_dir = tmp_path / "out"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
+
+    def _complete(paths, **kwargs):
+        kwargs["on_chunk_done"](0, 1, {})
+        return {
+            "nodes": [{"id": "doc", "label": "Doc", "file_type": "document"}],
+            "edges": [],
+            "hyperedges": [],
+            "input_tokens": 12,
+            "output_tokens": 34,
+            "token_usage": {
+                "status": "complete",
+                "tracked_chunks": 1,
+                "untracked_chunks": 0,
+            },
+        }
+
+    monkeypatch.setattr("graphify.llm.extract_corpus_parallel", _complete)
+    monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
+    monkeypatch.setattr(
+        mainmod.sys,
+        "argv",
+        [
+            "graphify",
+            "extract",
+            str(corpus),
+            "--backend",
+            "claude",
+            "--out",
+            str(out_dir),
+            "--no-cluster",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        mainmod.main()
+    assert exc.value.code == 0
+
+    import json
+
+    graph = json.loads(
+        (out_dir / "graphify-out" / "graph.json").read_text(encoding="utf-8")
+    )
+    assert graph["input_tokens"] == 12
+    assert graph["output_tokens"] == 34
+    assert graph["token_usage"]["status"] == "complete"
+
+
 def _code_only_corpus(tmp_path):
     """A corpus with only code — no docs/papers/images."""
     (tmp_path / "auth.py").write_text(
@@ -232,6 +283,8 @@ def test_extract_without_key_still_errors_when_docs_present(
         mainmod.main()
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
-    assert "no LLM API key found" in err
+    assert "no OpenCode Go credential found" in err
+    assert err.count("opencode auth login --provider opencode-go") == 1
+    assert "OPENCODE_GO_API_KEY" in err
     assert "code-only corpus needs no key" in err
     assert not (out_dir / "graphify-out" / "graph.json").exists()

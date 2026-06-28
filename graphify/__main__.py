@@ -2277,7 +2277,8 @@ def main() -> None:
         print("    --top-k-edges N         per-symbol outbound edges in inspector (default 12)")
         print("    --label NAME            project label in header")
         print("  extract <path>          headless full extraction (AST + semantic LLM) for CI/scripts")
-        print("    --backend B             gemini|kimi|claude|openai|deepseek|ollama (default: whichever API key is set)")
+        print("    --backend B             opencode-go|gemini|kimi|claude|openai|deepseek|ollama")
+        print("                            default: OpenCode Go via OPENCODE_GO_API_KEY or global OpenCode auth")
         print("                            openai also reaches self-hosted OpenAI-compatible servers (llama.cpp,")
         print("                            vLLM, LM Studio): set OPENAI_BASE_URL (e.g. http://localhost:8080/v1)")
         print("                            and OPENAI_MODEL to the model name your server serves")
@@ -4171,11 +4172,11 @@ def main() -> None:
         # Runs detect -> AST extraction on code -> semantic LLM extraction on
         # docs/papers/images -> merge -> build -> cluster -> write outputs.
         # Unlike the skill.md path (which runs through Claude Code subagents),
-        # this calls extract_corpus_parallel directly using whichever backend
-        # has an API key set.
+        # this calls extract_corpus_parallel directly. Auto-detection selects
+        # OpenCode Go only; every other backend requires --backend.
         if len(sys.argv) < 3:
             print(
-                "Usage: graphify extract <path> [--backend gemini|kimi|claude|openai|deepseek|ollama] "
+                "Usage: graphify extract <path> [--backend opencode-go|gemini|kimi|claude|openai|deepseek|ollama] "
                 "[--model M] [--mode deep] [--out DIR] [--google-workspace] [--no-cluster] "
                 "[--max-workers N] [--token-budget N] [--max-concurrency N] "
                 "[--api-timeout S] [--postgres DSN] [--cargo]",
@@ -4405,7 +4406,11 @@ def main() -> None:
         )
         needs_llm = bool(semantic_files) or dedup_llm
         if backend is None and needs_llm:
-            backend = _detect_backend()
+            try:
+                backend = _detect_backend()
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                sys.exit(1)
         if backend is not None and backend not in _BACKENDS:
             print(
                 f"error: unknown backend '{backend}'. "
@@ -4423,11 +4428,11 @@ def main() -> None:
                 if dedup_llm:
                     reasons.append("--dedup-llm was passed")
                 print(
-                    "error: no LLM API key found (" + "; ".join(reasons) + "). "
-                    "Set GEMINI_API_KEY or GOOGLE_API_KEY (gemini), MOONSHOT_API_KEY "
-                    "(kimi), ANTHROPIC_API_KEY (claude), OPENAI_API_KEY (openai), "
-                    "DEEPSEEK_API_KEY (deepseek), or pass --backend. A code-only "
-                    "corpus needs no key.",
+                    "error: no OpenCode Go credential found ("
+                    + "; ".join(reasons)
+                    + "). Run once: opencode auth login --provider opencode-go. "
+                    "Alternatively set OPENCODE_GO_API_KEY, or pass --backend to "
+                    "select another provider. A code-only corpus needs no key.",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -4439,7 +4444,12 @@ def main() -> None:
                 except ValueError as exc:
                     print(f"error: {exc}", file=sys.stderr)
                     sys.exit(2)
-            if not _get_backend_api_key(backend):
+            try:
+                backend_api_key = _get_backend_api_key(backend)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            if not backend_api_key:
                 allow_no_key = False
                 if backend == "ollama":
                     from urllib.parse import urlparse
@@ -4505,6 +4515,11 @@ def main() -> None:
         sem_result: dict = {
             "nodes": [], "edges": [], "hyperedges": [],
             "input_tokens": 0, "output_tokens": 0,
+            "token_usage": {
+                "status": "not-used",
+                "tracked_chunks": 0,
+                "untracked_chunks": 0,
+            },
         }
         sem_cache_hits = 0
         sem_cache_misses = 0
@@ -4590,6 +4605,11 @@ def main() -> None:
                 sem_result["hyperedges"].extend(fresh.get("hyperedges", []))
                 sem_result["input_tokens"] += fresh.get("input_tokens", 0)
                 sem_result["output_tokens"] += fresh.get("output_tokens", 0)
+                from graphify.token_usage import normalize_token_usage
+                sem_result["token_usage"] = normalize_token_usage(
+                    fresh.get("token_usage"),
+                    default_status="unavailable",
+                )
 
         pg_result: dict = {"nodes": [], "edges": []}
         if cli_postgres_dsn is not None:
@@ -4625,6 +4645,7 @@ def main() -> None:
             "hyperedges": list(sem_result.get("hyperedges", [])),
             "input_tokens": ast_result.get("input_tokens", 0) + sem_result.get("input_tokens", 0),
             "output_tokens": ast_result.get("output_tokens", 0) + sem_result.get("output_tokens", 0),
+            "token_usage": sem_result["token_usage"],
         }
 
         graph_json_path = graphify_out / "graph.json"
@@ -4790,6 +4811,7 @@ def main() -> None:
             "tokens": {
                 "input": merged["input_tokens"],
                 "output": merged["output_tokens"],
+                "token_usage": merged["token_usage"],
             },
         }
         analysis_path.write_text(json.dumps(analysis, indent=2), encoding="utf-8")

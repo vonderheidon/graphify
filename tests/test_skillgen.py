@@ -121,32 +121,20 @@ def test_lean_core_runs_default_pipeline_with_zero_references():
         assert needed in core, f"lean core is missing default-pipeline content: {needed!r}"
 
 
-def test_extraction_states_no_api_key_required_for_every_host():
-    """Regression for #1461: every skill body that describes Step 3 extraction must
-    state up front that no API key is required, tell the agent never to prompt for or
-    block on one, and give a terminal-only (non-subagent) fallback.
-
-    Hermes (and the other AGENTS.md hosts) run the CLI directly and can't dispatch
-    subagents; the old text framed the no-key path only as 'dispatch subagents as
-    written', so those agents looped for minutes insisting on a missing API key.
-    """
+def test_extraction_uses_global_opencode_auth_without_requesting_key_copy():
+    """Every runbook uses global OpenCode auth and retains a host fallback."""
     platforms = gen.load_platforms()
     arts = gen.render_all(platforms)
     bodies = [a for a in arts
               if "### Step 3 - Extract entities and relationships" in a.content]
     assert bodies, "no rendered skill body contains the Step 3 extraction section"
     for a in bodies:
-        assert "graphify needs no API key" in a.content, a.path
-        assert "Never ask the user for one, and never block on one." in a.content, a.path
-        # the no-key fallback must not be framed *only* around subagent dispatch
-        assert "cannot dispatch subagents" in a.content, a.path
-        # where a host prints the GEMINI key tip, the clarity must precede it (be
-        # hoisted) rather than sit buried after the key check (aider/devin print no
-        # tip — they are the model themselves — so the check only applies if present)
-        tip = "Tip: set `GEMINI_API_KEY`"
-        if tip in a.content:
-            assert a.content.index("graphify needs no API key") < a.content.index(tip), \
-                f"{a.path}: no-key clarity is not hoisted above the GEMINI tip"
+        assert "never requires copying an API key" in a.content, a.path
+        assert "Never ask the user to paste a key" in a.content, a.path
+        assert "opencode auth login --provider opencode-go" in a.content, a.path
+        assert 'backend="opencode-go"' in a.content, a.path
+        assert "host agent remains the fallback" in a.content, a.path
+        assert "GEMINI_API_KEY" not in a.content, a.path
 
 
 def test_references_contain_no_core_pipeline_content():
@@ -506,13 +494,14 @@ def test_generated_runbooks_preserve_token_usage_completeness():
         assert "token_usage" in body, key
 
 
-def test_split_runbooks_install_gemini_extra_into_uv_tool_environment():
+def test_runbooks_use_global_opencode_go_without_automatic_gemini():
     platforms = gen.load_platforms()
     for key, platform in platforms.items():
-        if platform.bucket != "split":
-            continue
         body = gen.render(platform)[0].content
-        assert "uv tool install --force 'graphifyy[gemini]'" in body, key
+        assert 'backend="opencode-go"' in body, key
+        assert "opencode auth login --provider opencode-go" in body, key
+        assert "GEMINI_API_KEY" not in body, key
+        assert 'backend="gemini"' not in body, key
 
 
 def test_monoliths_carry_the_1392_runbook_fixes():

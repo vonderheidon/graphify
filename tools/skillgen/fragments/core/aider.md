@@ -177,7 +177,11 @@ After transcription:
 
 This step has two parts: **structural extraction** (deterministic, free) and **semantic extraction** (your AI model, costs tokens).
 
-> **graphify needs no API key. Never ask the user for one, and never block on one.** Code is extracted structurally (AST) with no LLM and no key at all — a code-only corpus (the common `/graphify .` on a repo) skips semantic extraction entirely, so go straight to Part A and skip Part B. Semantic extraction (only for docs, papers, and images) is done by your own model. graphify does **not** read `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any other provider key. If you cannot dispatch subagents, do not stall: a code-only corpus has no semantic work (write the empty semantic file and continue to Part C); for docs/papers/images, extract them inline yourself. If you catch yourself about to prompt for or block on a missing API key, that is a misread of this skill — proceed without one.
+> **graphify never requires copying an API key into a repo or shell profile.** Code is extracted structurally (AST) with no LLM. For docs, papers, and images, graphify reuses the `opencode-go` credential from OpenCode's global auth file; `OPENCODE_GO_API_KEY` is an optional override. If neither exists, the host agent remains the fallback. Never ask the user to paste a key or block a code-only corpus.
+
+**Before semantic extraction:** resolve OpenCode Go with `graphify.llm._get_backend_api_key("opencode-go")`. Do not print the returned value. If no credential exists, print `Run once: opencode auth login --provider opencode-go` once and continue with the host-agent fallback.
+
+When the credential exists, use `graphify.llm.extract_corpus_parallel(files, backend="opencode-go")` instead of dispatching semantic subagents. OpenCode Go is the only automatic API backend. Other backends remain available only through an explicit `--backend`.
 
 **Run Part A (AST) and Part B (semantic) in parallel. Dispatch all semantic subagents AND start AST extraction in the same message. Both can run simultaneously since they operate on different file types. Merge results in Part C as before.**
 

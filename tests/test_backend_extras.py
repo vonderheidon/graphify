@@ -34,6 +34,13 @@ def test_anthropic_in_all_extra():
     assert any("anthropic" in dep for dep in extras["all"]), "[all] must include anthropic"
 
 
+def test_opencode_go_client_is_a_default_dependency():
+    """The automatic backend must work after an install without extras."""
+    data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    dependencies = data["project"]["dependencies"]
+    assert any(dep.startswith("openai") for dep in dependencies)
+
+
 def test_backend_pkg_hint_points_at_uv_tool_and_extra():
     msg = _backend_pkg_hint("anthropic", "anthropic")
     assert "uv tool install" in msg

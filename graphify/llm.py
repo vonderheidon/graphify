@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import time
 from collections.abc import Callable
@@ -870,11 +871,70 @@ def _get_backend_api_key(backend: str) -> str:
         value = os.environ.get(env_key)
         if value:
             return value
+    if backend == "opencode-go":
+        return _get_opencode_go_global_api_key()
     return ""
+
+
+def _opencode_auth_path() -> Path:
+    """Return OpenCode's user-global auth file without consulting the cwd."""
+    data_home = os.environ.get("XDG_DATA_HOME")
+    if data_home:
+        root = Path(data_home).expanduser()
+        if not root.is_absolute():
+            raise ValueError("XDG_DATA_HOME must be an absolute path.")
+        return root / "opencode" / "auth.json"
+    return Path.home() / ".local" / "share" / "opencode" / "auth.json"
+
+
+def _get_opencode_go_global_api_key() -> str:
+    """Read OpenCode Go's global credential after strict file validation.
+
+    Missing files are a normal "not configured" result. Existing files fail
+    closed unless they are regular, non-symlink files owned by this user with no
+    group/other permission bits. Errors intentionally never include file
+    contents or credential values.
+    """
+    path = _opencode_auth_path()
+    try:
+        file_stat = path.lstat()
+    except FileNotFoundError:
+        return ""
+    except OSError as exc:
+        raise ValueError(f"Cannot inspect OpenCode auth file at {path}.") from exc
+
+    mode = file_stat.st_mode
+    if not stat.S_ISREG(mode) or path.is_symlink():
+        raise ValueError(f"OpenCode auth file at {path} must be a regular, non-symlink file.")
+    if file_stat.st_uid != os.getuid():
+        raise ValueError(f"OpenCode auth file at {path} must be owned by the current user.")
+    if stat.S_IMODE(mode) & 0o077:
+        raise ValueError(
+            f"OpenCode auth file at {path} has unsafe permissions; set mode 0600."
+        )
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"OpenCode auth file at {path} is invalid.") from exc
+
+    provider = payload.get("opencode-go") if isinstance(payload, dict) else None
+    key = provider.get("key") if isinstance(provider, dict) else None
+    credential_type = provider.get("type") if isinstance(provider, dict) else None
+    if credential_type != "api" or not isinstance(key, str) or not key.strip():
+        raise ValueError(
+            f"OpenCode auth file at {path} has no valid opencode-go API credential."
+        )
+    return key
 
 
 def _format_backend_env_keys(backend: str) -> str:
     """Return user-facing accepted API-key variable names."""
+    if backend == "opencode-go":
+        return (
+            "OPENCODE_GO_API_KEY or the global OpenCode credential "
+            "(run: opencode auth login --provider opencode-go)"
+        )
     keys = _backend_env_keys(backend)
     return " or ".join(keys) if keys else "AWS_PROFILE or AWS_REGION"
 
@@ -1353,16 +1413,16 @@ def extract_files_direct(
         backend = detect_backend()
         if backend is None:
             raise ValueError(
-                "No LLM backend configured. Set one of: GEMINI_API_KEY, ANTHROPIC_API_KEY, "
-                "OPENAI_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY, "
-                "AZURE_OPENAI_API_KEY+AZURE_OPENAI_ENDPOINT, OLLAMA_BASE_URL, "
-                "or AWS credentials. Pass backend= explicitly to select a provider."
+                "No OpenCode Go credential found. Run once: "
+                "opencode auth login --provider opencode-go. "
+                "Alternatively set OPENCODE_GO_API_KEY, or pass backend= explicitly "
+                "to select another provider."
             )
     if backend not in BACKENDS:
         raise ValueError(f"Unknown backend {backend!r}. Available: {sorted(BACKENDS)}")
 
     cfg = BACKENDS[backend]
-    key = api_key or _get_backend_api_key(backend)
+    key = api_key if api_key is not None else _get_backend_api_key(backend)
     if not key and backend == "ollama":
         # Ollama ignores auth but the OpenAI client library requires a non-empty
         # string. Use a placeholder and surface a visible warning so this never
@@ -2181,32 +2241,8 @@ def _validate_ollama_base_url(url: str, *, warn: bool = True) -> None:
 
 
 def detect_backend() -> str | None:
-    """Return the name of whichever backend has an API key set, or None.
-
-    Priority: gemini → kimi → claude → openai → deepseek → azure → bedrock → ollama (last, opt-in).
-
-    Ollama is intentionally checked LAST so a paid API key (Anthropic/OpenAI/etc.)
-    is never silently shadowed by an incidental OLLAMA_BASE_URL in the environment
-    — see security finding F-002/F-029. Setting OLLAMA_BASE_URL alongside a paid
-    key now keeps you on the paid backend; remove the paid key (or pass
-    --backend ollama explicitly) to route to the local model.
-    """
-    for backend in ("gemini", "kimi", "claude", "openai", "deepseek"):
-        if _get_backend_api_key(backend):
-            return backend
-    if _get_backend_api_key("azure") and os.environ.get("AZURE_OPENAI_ENDPOINT"):
-        return "azure"
-    if os.environ.get("AWS_PROFILE") or os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"):
-        return "bedrock"
-    ollama_url = os.environ.get("OLLAMA_BASE_URL")
-    if ollama_url:
-        _validate_ollama_base_url(ollama_url)
-        return "ollama"
-    for name in BACKENDS:
-        if name not in ("gemini", "kimi", "claude", "openai", "deepseek", "azure", "bedrock", "ollama", "claude-cli"):
-            if _get_backend_api_key(name):
-                return name
-    return None
+    """Auto-select OpenCode Go only; every other backend is explicit opt-in."""
+    return "opencode-go" if _get_backend_api_key("opencode-go") else None
 
 
 # ── Community labeling ────────────────────────────────────────────────────────

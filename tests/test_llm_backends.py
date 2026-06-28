@@ -18,15 +18,17 @@ def _clear_backend_env(monkeypatch):
         "DEEPSEEK_API_KEY",
         "AZURE_OPENAI_API_KEY",
         "AZURE_OPENAI_ENDPOINT",
+        "OPENCODE_GO_API_KEY",
     ):
         monkeypatch.delenv(env_key, raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", "/__graphify_test_no_auth__")
 
 
 def test_gemini_accepts_gemini_api_key(monkeypatch):
     _clear_backend_env(monkeypatch)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
 
-    assert llm.detect_backend() == "gemini"
+    assert llm.detect_backend() is None
     assert llm._get_backend_api_key("gemini") == "gemini-key"
 
 
@@ -34,25 +36,25 @@ def test_gemini_accepts_google_api_key(monkeypatch):
     _clear_backend_env(monkeypatch)
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key")
 
-    assert llm.detect_backend() == "gemini"
+    assert llm.detect_backend() is None
     assert llm._get_backend_api_key("gemini") == "google-key"
 
 
-def test_backend_detection_prefers_gemini(monkeypatch):
+def test_backend_detection_does_not_auto_select_gemini(monkeypatch):
     _clear_backend_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
     monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-key")
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
 
-    assert llm.detect_backend() == "gemini"
+    assert llm.detect_backend() is None
 
 
 def test_openai_backend_detected(monkeypatch):
     _clear_backend_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
 
-    assert llm.detect_backend() == "openai"
+    assert llm.detect_backend() is None
     assert llm._get_backend_api_key("openai") == "openai-key"
 
 
@@ -741,12 +743,12 @@ def test_call_azure_uses_correct_client_params_and_max_completion_tokens(monkeyp
     assert result["nodes"] == [{"id": "a"}]
 
 
-def test_detect_backend_returns_azure_when_both_vars_set(monkeypatch):
+def test_azure_credentials_remain_available_for_explicit_selection(monkeypatch):
     _clear_backend_env(monkeypatch)
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://my-resource.openai.azure.com/")
 
-    assert llm.detect_backend() == "azure"
+    assert llm.detect_backend() is None
     assert llm._get_backend_api_key("azure") == "azure-key"
 
 

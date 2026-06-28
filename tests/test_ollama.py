@@ -6,6 +6,12 @@ import pytest
 from graphify.llm import detect_backend, BACKENDS, _validate_ollama_base_url
 
 
+@pytest.fixture(autouse=True)
+def _disable_real_opencode_auth(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "no-opencode-auth"))
+
+
 @pytest.mark.parametrize("url", [
     "http://169.254.169.254/v1",
     "http://169.254.1.5:11434/v1",
@@ -59,14 +65,14 @@ def test_detect_backend_ollama(monkeypatch):
     monkeypatch.delenv("MOONSHOT_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-    assert detect_backend() == "ollama"
+    assert detect_backend() is None
 
 
 def test_detect_backend_kimi_beats_ollama(monkeypatch):
     monkeypatch.setenv("MOONSHOT_API_KEY", "test-key")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert detect_backend() == "kimi"
+    assert detect_backend() is None
 
 
 def test_detect_backend_claude_beats_ollama(monkeypatch):
@@ -77,7 +83,7 @@ def test_detect_backend_claude_beats_ollama(monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    assert detect_backend() == "claude"
+    assert detect_backend() is None
 
 
 def test_detect_backend_none_without_envvars(monkeypatch):

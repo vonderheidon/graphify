@@ -842,6 +842,17 @@ def _is_no_api_key_fix_line(line: str) -> bool:
     return "graphify needs no API key" in line
 
 
+def _is_opencode_go_runbook_line(line: str) -> bool:
+    """Whether a monolith line belongs to global OpenCode Go extraction."""
+    return (
+        "graphify never requires copying an API key" in line
+        or "resolve OpenCode Go with" in line
+        or "opencode auth login --provider opencode-go" in line
+        or "backend=\"opencode-go\"" in line
+        or "OpenCode Go is the only automatic API backend" in line
+    )
+
+
 def _is_token_usage_fix_line(line: str) -> bool:
     """Whether a line belongs to honest host-agent token accounting.
 
@@ -908,6 +919,7 @@ _SANCTIONED_MONOLITH_DIFFS = (
     _is_zero_node_guard_fix_line,
     _is_manifest_root_fix_line,
     _is_no_api_key_fix_line,
+    _is_opencode_go_runbook_line,
     _is_token_usage_fix_line,
 )
 
