@@ -138,8 +138,8 @@ def test_provider_base_url_ok_scheme_and_warnings(capsys):
     assert "plaintext" in capsys.readouterr().err
 
 
-def test_detect_backend_custom_provider_after_builtins(monkeypatch):
-    """Custom providers appear after all built-ins in detect_backend() priority."""
+def test_custom_provider_remains_explicit_only(monkeypatch):
+    """Custom providers retain their key but are not selected automatically."""
     from graphify import llm
 
     monkeypatch.setattr(llm, "BACKENDS", {
@@ -153,6 +153,8 @@ def test_detect_backend_custom_provider_after_builtins(monkeypatch):
         }
     })
     monkeypatch.setenv("MY_CUSTOM_KEY", "test-key")
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", "/__graphify_test_no_auth__")
     for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "MOONSHOT_API_KEY", "ANTHROPIC_API_KEY",
                  "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OLLAMA_BASE_URL"):
         monkeypatch.delenv(key, raising=False)
@@ -161,4 +163,5 @@ def test_detect_backend_custom_provider_after_builtins(monkeypatch):
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
 
     result = llm.detect_backend()
-    assert result == "myprovider"
+    assert result is None
+    assert llm._get_backend_api_key("myprovider") == "test-key"
