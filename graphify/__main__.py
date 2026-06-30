@@ -622,6 +622,14 @@ def _replace_or_append_section(content: str, marker: str, new_section: str) -> s
     for j in range(start + 1, len(lines)):
         if lines[j].startswith("## "):
             end = j
+            # HTML bridge markers immediately before an H2 belong to that next
+            # section. Preserve them instead of consuming them with Graphify's
+            # unmarked legacy section during an upgrade.
+            while end > start + 1 and (
+                not lines[end - 1].strip()
+                or lines[end - 1].lstrip().startswith("<!--")
+            ):
+                end -= 1
             break
 
     head = "\n".join(lines[:start]).rstrip()

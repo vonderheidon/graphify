@@ -25,6 +25,6 @@
 - **Completed**: T1 `23983ce`; T2 `7d99cf8`; review refinement `c281a46`; T3/T4/T5 `ca399cd`; T6 `df70a02`; T7 `fcc9232`; T8 final gates, graph refresh, wheel coverage correction, and independent validation PASS
 - **In-progress** (file:line): none
 - **Next step**: publish branch, reinstall the tool, and execute the scoped rollout.
-- **Blockers**: none; focused gate passed 114 tests, skillgen matched 148 artifacts, full gate passed outside the restricted sandbox (`2547 passed, 3 skipped`), and standalone validation passed 7/7 requirements with its mutation killed.
+- **Blockers**: none; rollout marker remediation passed 115 focused tests, skillgen matched 148 artifacts, full gate passed outside the restricted sandbox (`2548 passed, 3 skipped`), and standalone validation passed 7/7 requirements with its mutation killed.
 - **Uncommitted files**: preexisting `.gitignore`, `AGENTS.md`, `CLAUDE.md`, `.projectmem/`
 - **Branch**: `v8...fork/v8`

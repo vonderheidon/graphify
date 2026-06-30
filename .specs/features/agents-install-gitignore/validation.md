@@ -20,7 +20,7 @@
 
 - Focused: 114 passed.
 - Skillgen: 148 generated artifacts match.
-- Full: 2547 passed, 3 known skips; baseline did not decrease.
+- Full after rollout remediation: 2548 passed, 3 known skips; baseline did not decrease.
 
 ## Discrimination Sensor
 
@@ -36,3 +36,10 @@ tests map directly to GIG-01..07, and the README/help describe the same public
 contract.
 
 **Overall**: PASS
+
+## Rollout Remediation
+
+The first self-host rollout exposed that the unmarked Graphify section updater
+consumed an HTML bridge marker immediately before the next H2. The replacement
+boundary now preserves such markers. `tests/test_agents_platform.py` covers the
+Graphify→ProjectMem sequence, and the repeated full gate passed 2548 tests.

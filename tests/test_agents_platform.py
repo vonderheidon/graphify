@@ -202,6 +202,28 @@ def test_agents_subcommand_install_is_idempotent(tmp_path):
     assert (cwd / ".gitignore").read_bytes() == first_gitignore
 
 
+def test_agents_upgrade_preserves_next_section_bridge_marker(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    agents_md = cwd / "AGENTS.md"
+    agents_md.write_text(
+        "## graphify\n\nOld graph rules.\n\n"
+        "<!-- >>> projectmem agents bridge >>> -->\n"
+        "## ProjectMem\n\nMemory rules.\n"
+        "<!-- <<< projectmem agents bridge <<< -->\n",
+        encoding="utf-8",
+    )
+
+    _run(cwd, ["agents", "install", "--no-gitignore"], home)
+
+    content = agents_md.read_text(encoding="utf-8")
+    assert content.count("<!-- >>> projectmem agents bridge >>> -->") == 1
+    assert content.count("<!-- <<< projectmem agents bridge <<< -->") == 1
+    assert "Memory rules." in content
+
+
 def test_agents_install_creates_shared_output_gitignore(tmp_path):
     home = tmp_path / "home"
     cwd = tmp_path / "cwd"
