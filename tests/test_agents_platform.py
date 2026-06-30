@@ -224,6 +224,25 @@ def test_agents_upgrade_preserves_next_section_bridge_marker(tmp_path):
     assert "Memory rules." in content
 
 
+def test_agents_upgrade_adopts_case_variant_heading(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    agents_md = cwd / "AGENTS.md"
+    agents_md.write_text(
+        "## Graphify\n\nOld localized rules.\n\n## Local\n\nKeep.\n",
+        encoding="utf-8",
+    )
+
+    _run(cwd, ["agents", "install", "--no-gitignore"], home)
+
+    content = agents_md.read_text(encoding="utf-8")
+    assert content.casefold().count("## graphify") == 1
+    assert "Old localized rules." not in content
+    assert "## Local\n\nKeep." in content
+
+
 def test_agents_install_creates_shared_output_gitignore(tmp_path):
     home = tmp_path / "home"
     cwd = tmp_path / "cwd"

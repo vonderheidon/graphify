@@ -608,13 +608,17 @@ def _replace_or_append_section(content: str, marker: str, new_section: str) -> s
     users having to uninstall and reinstall — important for the issue #580
     fix where existing report-first text would otherwise silently linger.
     """
-    if marker not in content:
+    marker_key = marker.casefold()
+    if marker_key not in content.casefold():
         if content.strip():
             return content.rstrip() + "\n\n" + new_section.lstrip()
         return new_section.lstrip()
 
     lines = content.split("\n")
-    start = next((i for i, line in enumerate(lines) if marker in line), None)
+    start = next(
+        (i for i, line in enumerate(lines) if marker_key in line.casefold()),
+        None,
+    )
     if start is None:
         return content.rstrip() + "\n\n" + new_section.lstrip()
 

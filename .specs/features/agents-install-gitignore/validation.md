@@ -20,7 +20,7 @@
 
 - Focused: 114 passed.
 - Skillgen: 148 generated artifacts match.
-- Full after rollout remediation: 2548 passed, 3 known skips; baseline did not decrease.
+- Full after rollout remediation: 2549 passed, 3 known skips; baseline did not decrease.
 
 ## Discrimination Sensor
 
@@ -42,4 +42,6 @@ contract.
 The first self-host rollout exposed that the unmarked Graphify section updater
 consumed an HTML bridge marker immediately before the next H2. The replacement
 boundary now preserves such markers. `tests/test_agents_platform.py` covers the
-Graphify→ProjectMem sequence, and the repeated full gate passed 2548 tests.
+Graphify→ProjectMem sequence. A second rollout review found case-sensitive H2
+matching; the updater now adopts `## Graphify` without duplication. The repeated
+full gate passed 2549 tests.
