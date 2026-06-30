@@ -22,6 +22,59 @@ if str(REPO_ROOT) not in sys.path:
 from tools.skillgen import gen  # noqa: E402
 
 
+# Documented pre-router split-core word counts, measured from the committed
+# render before graphify-router-skill Phase 1. GRS-06 requires the split core to
+# shrink by at least 40% against this fixed baseline, not against itself.
+_SPLIT_CORE_BASELINE_WORDS = {
+    "claude": 4645,
+    "codex": 4645,
+    "windows": 4809,
+    "opencode": 4567,
+    "kilo": 4692,
+    "copilot": 4645,
+    "claw": 4645,
+    "droid": 4597,
+    "amp": 4597,
+    "agents": 4597,
+    "trae": 4612,
+    "kiro": 4645,
+    "pi": 4645,
+    "vscode": 4609,
+}
+
+
+_HEAVY_CORE_MARKERS = {
+    "build": (
+        "### Step 1 - Ensure graphify is installed",
+        "### Step 2 - Detect files",
+        "### Step 3 - Extract entities and relationships",
+        "### Step 4 - Build graph, cluster, analyze, generate outputs",
+        "from graphify.cluster import cluster, score_all",
+        "### Step 5 - Label communities",
+    ),
+    "update": (
+        "from graphify.build import build_merge",
+        "graphify cluster-only .",
+    ),
+    "exports": (
+        "graphify export html",
+        "graphify export wiki",
+        "graphify export neo4j",
+    ),
+    "add-watch": (
+        "from graphify.ingest import ingest",
+        "python3 -m graphify.watch",
+    ),
+    "hooks": (
+        "graphify hook install",
+    ),
+    "extraction-schema": (
+        '"file_type":"code|document|paper|image|rationale|concept"',
+        "Node ID format: lowercase, only `[a-z0-9_]`",
+    ),
+}
+
+
 def test_audit_coverage_passes():
     """Every v8 heading lands in the lean core or exactly one reference."""
     platforms = gen.load_platforms()
@@ -225,6 +278,49 @@ def _platform_artifacts(key):
     core = next(a for a in arts if a.path == skill_dst)
     refs = {a.path.rsplit("/", 1)[-1]: a.content for a in arts if a.path != skill_dst}
     return core.content, refs
+
+
+def _split_platform_artifacts():
+    platforms = gen.load_platforms()
+    for key, platform in platforms.items():
+        if platform.bucket == "split":
+            core, refs = _platform_artifacts(key)
+            yield key, core, refs
+
+
+def test_split_router_keeps_graph_first_query_inline():
+    """GRS-01/GRS-02: existing graphs route to query/path/explain from the core."""
+    for key, core, _ in _split_platform_artifacts():
+        assert "**Fast path — existing graph:**" in core, key
+        assert 'Run `graphify query "<question>"` immediately.' in core, key
+        assert "Do not run detect. Do not check corpus size." in core, key
+        assert core.index("**Fast path — existing graph:**") < core.index("### Step 1"), key
+        assert '/graphify query "<question>"' in core, key
+        assert 'graphify path "AuthModule" "Database"' in core, key
+        assert 'graphify explain "SwinTransformer"' in core, key
+        assert "see `references/query.md`" in core, key
+
+
+def test_split_router_core_excludes_heavy_runbook_markers():
+    """GRS-01/GRS-06: split cores keep only pointers, not heavy procedure bodies."""
+    for key, core, _ in _split_platform_artifacts():
+        leaked = {
+            route: [marker for marker in markers if marker in core]
+            for route, markers in _HEAVY_CORE_MARKERS.items()
+        }
+        leaked = {route: markers for route, markers in leaked.items() if markers}
+        assert leaked == {}, f"[{key}] split core leaked heavy runbook markers: {leaked}"
+
+
+def test_split_router_core_is_40_percent_smaller_than_documented_baseline():
+    """GRS-06: rendered split cores prove the router-size reduction."""
+    for key, core, _ in _split_platform_artifacts():
+        baseline = _SPLIT_CORE_BASELINE_WORDS[key]
+        current = len(core.split())
+        assert current <= baseline * 0.60, (
+            f"[{key}] split core has {current} words; expected <= {baseline * 0.60:.0f} "
+            f"from documented baseline {baseline}"
+        )
 
 
 def test_check_passes_for_codex_and_windows():
