@@ -20,7 +20,7 @@
 
 ## Phase 4 — Validation
 
-- [ ] T4 Run full gate, standalone fresh-eyes validation, graph refresh, and record evidence.
+- [x] T4 Run full gate, standalone fresh-eyes validation, graph refresh, and record evidence.
   - Verify: full suite baseline and discrimination sensor.
   - Gate: build.
 
