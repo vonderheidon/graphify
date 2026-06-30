@@ -192,10 +192,96 @@ def test_agents_subcommand_install_is_idempotent(tmp_path):
     cwd.mkdir()
 
     _run(cwd, ["agents", "install"], home)
+    first_gitignore = (cwd / ".gitignore").read_bytes()
     _run(cwd, ["agents", "install"], home)
 
     body = (cwd / "AGENTS.md").read_text(encoding="utf-8")
     assert body.count("## graphify") == 1, "AGENTS.md gained a duplicate graphify section"
+    gitignore = (cwd / ".gitignore").read_text(encoding="utf-8")
+    assert gitignore.count(mainmod._GITIGNORE_START) == 1
+    assert (cwd / ".gitignore").read_bytes() == first_gitignore
+
+
+def test_agents_install_creates_shared_output_gitignore(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+
+    _run(cwd, ["agents", "install"], home)
+
+    content = (cwd / ".gitignore").read_text(encoding="utf-8")
+    assert "graphify-out/cache/" in content
+    assert "graphify-out/.graphify_*" in content
+    assert "graphify-out/graph.json" not in content
+    assert "!graphify-out/.graphify_labels.json" in content
+
+
+def test_agents_install_migrates_legacy_rules_and_preserves_user_rules(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    target = cwd / ".gitignore"
+    target.write_text(
+        "*.secret\n/graphify-out/\ngraphify-out/cache/\nkeep-this/\n"
+        "graphify-out/.graphify_labels.json\n",
+        encoding="utf-8",
+    )
+
+    _run(cwd, ["skills", "install"], home)
+
+    content = target.read_text(encoding="utf-8")
+    assert "*.secret" in content
+    assert "keep-this/" in content
+    assert "\n/graphify-out/\n" not in content
+    assert content.count("graphify-out/cache/") == 1
+    assert "\ngraphify-out/.graphify_labels.json\n" not in content
+    assert "!graphify-out/.graphify_labels.json" in content
+
+
+def test_agents_install_no_gitignore_is_byte_identical(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    target = cwd / ".gitignore"
+    original = b"custom/\n/graphify-out/\n"
+    target.write_bytes(original)
+
+    _run(cwd, ["agents", "install", "--no-gitignore"], home)
+
+    assert target.read_bytes() == original
+    assert (cwd / "AGENTS.md").exists()
+
+
+def test_agents_install_preserves_corrupt_gitignore_and_continues(tmp_path, capsys):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    target = cwd / ".gitignore"
+    original = (mainmod._GITIGNORE_START + "\nlocal/\n").encode()
+    target.write_bytes(original)
+
+    _run(cwd, ["agents", "install"], home)
+
+    assert target.read_bytes() == original
+    assert (cwd / "AGENTS.md").exists()
+    assert ".gitignore not changed" in capsys.readouterr().err
+
+
+def test_agents_uninstall_keeps_gitignore_block(tmp_path):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+
+    _run(cwd, ["agents", "install"], home)
+    before = (cwd / ".gitignore").read_bytes()
+    _run(cwd, ["agents", "uninstall"], home)
+
+    assert (cwd / ".gitignore").read_bytes() == before
 
 
 def test_skills_subcommand_is_the_agents_subcommand(tmp_path):

@@ -1633,6 +1633,90 @@ def _agents_install(project_dir: Path, platform: str) -> None:
         )
 
 
+_GITIGNORE_START = "# >>> graphify managed outputs >>>"
+_GITIGNORE_END = "# <<< graphify managed outputs <<<"
+_GITIGNORE_SHARED_BLOCK = """\
+# >>> graphify managed outputs >>>
+# Local Graphify state; shared graph artifacts remain versionable.
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/.vocab.txt
+graphify-out/.graphify_*
+!graphify-out/.graphify_labels.json
+graphify-out/.needs_update
+graphify-out/converted/
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+# <<< graphify managed outputs <<<
+"""
+_GITIGNORE_LEGACY_RULES = {
+    "graphify-out/",
+    "/graphify-out/",
+    "graphify-out/cache/",
+    "graphify-out/cost.json",
+    "graphify-out/.graphify_python",
+    "graphify-out/.graphify_root",
+    "graphify-out/.vocab.txt",
+    "graphify-out/.graphify_*",
+    "!graphify-out/.graphify_labels.json",
+    "graphify-out/.needs_update",
+    "graphify-out/converted/",
+    "graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/",
+    "graphify-out/graph.json",
+    "graphify-out/graph.html",
+    "graphify-out/GRAPH_REPORT.md",
+    "graphify-out/manifest.json",
+    "graphify-out/.graphify_labels.json",
+    "graphify-out/memory/",
+    "graphify-out/reflections/",
+}
+
+
+def _render_graphify_gitignore(content: str) -> str:
+    """Return ``content`` with one canonical Graphify-managed block."""
+    starts = content.count(_GITIGNORE_START)
+    ends = content.count(_GITIGNORE_END)
+    if starts != ends or starts > 1:
+        raise ValueError("incomplete or duplicate Graphify .gitignore markers")
+
+    if starts:
+        start = content.index(_GITIGNORE_START)
+        try:
+            end = content.index(_GITIGNORE_END, start) + len(_GITIGNORE_END)
+        except ValueError as exc:
+            raise ValueError("corrupt Graphify .gitignore marker order") from exc
+        content = content[:start] + content[end:]
+    elif _GITIGNORE_END in content:
+        raise ValueError("incomplete Graphify .gitignore markers")
+
+    kept = [
+        line
+        for line in content.splitlines()
+        if line.strip() not in _GITIGNORE_LEGACY_RULES
+    ]
+    user_content = "\n".join(kept).strip("\n")
+    if user_content:
+        return user_content + "\n\n" + _GITIGNORE_SHARED_BLOCK
+    return _GITIGNORE_SHARED_BLOCK
+
+
+def _ensure_graphify_gitignore(project_dir: Path) -> None:
+    """Create or safely refresh the shared-output policy in ``.gitignore``."""
+    target = project_dir / ".gitignore"
+    original = target.read_text(encoding="utf-8") if target.exists() else ""
+    try:
+        updated = _render_graphify_gitignore(original)
+    except ValueError as exc:
+        print(f"ERROR: .gitignore not changed: {exc}", file=sys.stderr)
+        return
+    if updated == original:
+        print(f"graphify .gitignore block already current in {target.resolve()}")
+        return
+    target.write_text(updated, encoding="utf-8")
+    print(f"graphify .gitignore block written to {target.resolve()}")
+
+
 def _amp_legacy_cleanup() -> None:
     """Best-effort removal of the pre-fix ~/.amp/skills/graphify install dir.
 
@@ -1662,18 +1746,24 @@ def _amp_uninstall(project_dir: Path | None = None) -> None:
     _agents_uninstall(project_dir or Path("."), platform="amp")
 
 
-def _agents_platform_install(project_dir: Path | None = None) -> None:
+def _agents_platform_install(
+    project_dir: Path | None = None, *, manage_gitignore: bool = True
+) -> None:
     """`graphify agents install`: skill into ~/.agents/skills + AGENTS.md.
 
     The amp-twin of the generic Agent-Skills target. Mirrors _amp_install but
     lands the skill at the spec's user-global ~/.agents/skills (set in
     _platform_skill_destination). Wiring AGENTS.md keeps it honest with the
-    rendered hooks reference, which points at `graphify agents install`. The bare
+    rendered hooks reference, which points at `graphify agents install`. The
+    install also owns the shared-output `.gitignore` policy unless explicitly
+    disabled for self-hosting with `--no-gitignore`. The bare
     `graphify install --platform agents` path stays skill-only (via install()),
     exactly as amp's `--platform amp` does.
     """
     _copy_skill_file("agents")
     _agents_install(project_dir or Path("."), "agents")
+    if manage_gitignore:
+        _ensure_graphify_gitignore(project_dir or Path("."))
 
 
 def _agents_platform_uninstall(project_dir: Path | None = None) -> None:
@@ -2603,14 +2693,19 @@ def main() -> None:
             if "--project" in sys.argv[3:]:
                 _project_install("agents", Path("."))
             else:
-                _agents_platform_install(Path("."))
+                _agents_platform_install(
+                    Path("."), manage_gitignore="--no-gitignore" not in sys.argv[3:]
+                )
         elif subcmd == "uninstall":
             if "--project" in sys.argv[3:]:
                 _project_uninstall("agents", Path("."))
             else:
                 _agents_platform_uninstall(Path("."))
         else:
-            print(f"Usage: graphify {cmd} [install|uninstall]", file=sys.stderr)
+            print(
+                f"Usage: graphify {cmd} install [--no-gitignore] | uninstall",
+                file=sys.stderr,
+            )
             sys.exit(1)
     elif cmd in ("aider", "codex", "opencode", "claw", "droid", "trae", "trae-cn", "hermes"):
         subcmd = sys.argv[2] if len(sys.argv) > 2 else ""

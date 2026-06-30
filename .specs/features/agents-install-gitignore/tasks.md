@@ -2,13 +2,13 @@
 
 ## Phase 1 — Contract
 
-- [ ] T1 Specify policy and decision state.
+- [x] T1 Specify policy and decision state.
   - Verify: spec covers GIG-01..07 and edge cases.
   - Gate: documentation inspection.
 
 ## Phase 2 — Product
 
-- [ ] T2 Implement managed `.gitignore`, migration, corruption handling, and `--no-gitignore`; add acceptance tests.
+- [x] T2 Implement managed `.gitignore`, migration, corruption handling, and `--no-gitignore`; add acceptance tests.
   - Verify: focused pytest gate.
   - Gate: quick.
 
