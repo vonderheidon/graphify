@@ -210,11 +210,14 @@ def test_install_unknown_platform_exits(tmp_path):
 
 
 def test_codex_skill_contains_spawn_agent():
-    """Codex skill file must reference spawn_agent."""
+    """Codex build reference must reference spawn_agent."""
     import graphify
 
-    skill = (Path(graphify.__file__).parent / "skill-codex.md").read_text()
-    assert "spawn_agent" in skill
+    pkg = Path(graphify.__file__).parent
+    skill = (pkg / "skill-codex.md").read_text()
+    build = (pkg / "skills" / "codex" / "references" / "build.md").read_text()
+    assert "references/build.md" in skill
+    assert "spawn_agent" in build
 
 
 def test_codex_skill_uses_graphify_with_existing_graph():
@@ -227,7 +230,7 @@ def test_codex_skill_uses_graphify_with_existing_graph():
     import graphify
     skill = (Path(graphify.__file__).parent / "skill-codex.md").read_text()
     assert "Fast path — existing graph" in skill
-    assert "skip Steps 1–5 entirely and jump straight to `## For /graphify query`" in skill
+    assert "skip build detection entirely and jump straight to `## For /graphify query`" in skill
     assert "graphify query" in skill
     assert "graphify explain" in skill
     assert "graphify path" in skill
@@ -241,11 +244,14 @@ def test_codex_agents_install_mentions_dirty_graph_output(tmp_path):
 
 
 def test_opencode_skill_contains_mention():
-    """OpenCode skill file must reference @mention."""
+    """OpenCode build reference must reference @mention."""
     import graphify
 
-    skill = (Path(graphify.__file__).parent / "skill-opencode.md").read_text()
-    assert "@mention" in skill
+    pkg = Path(graphify.__file__).parent
+    skill = (pkg / "skill-opencode.md").read_text()
+    build = (pkg / "skills" / "opencode" / "references" / "build.md").read_text()
+    assert "references/build.md" in skill
+    assert "@mention" in build
 
 
 def test_opencode_skill_uses_opencode_agent_guidance():
@@ -260,11 +266,12 @@ def test_opencode_skill_uses_opencode_agent_guidance():
     """
     import graphify
 
-    skill = (Path(graphify.__file__).parent / "skill-opencode.md").read_text()
-    assert "@mention" in skill
-    assert "@agent" in skill
+    pkg = Path(graphify.__file__).parent
+    build = (pkg / "skills" / "opencode" / "references" / "build.md").read_text()
+    assert "@mention" in build
+    assert "@agent" in build
     # Scope the agent-type check to opencode's dispatch slot (B2 -> B3).
-    b2 = skill[skill.index("**Step B2"):skill.index("**Step B3")]
+    b2 = build[build.index("**Step B2"):build.index("**Step B3")]
     assert "general-purpose" not in b2
     assert "Concrete example for 3 chunks" not in b2
     assert "OpenCode platform" in b2
@@ -296,11 +303,15 @@ def test_claw_skill_uses_agent_tool_dispatch():
     """
     import graphify
 
-    skill = (Path(graphify.__file__).parent / "skill-claw.md").read_text()
-    b2 = skill[skill.index("**Step B2"):skill.index("**Step B3")]
+    pkg = Path(graphify.__file__).parent
+    skill = (pkg / "skill-claw.md").read_text()
+    build = (pkg / "skills" / "claw" / "references" / "build.md").read_text()
+    b2 = build[build.index("**Step B2"):build.index("**Step B3")]
     assert 'subagent_type="general-purpose"' in b2
     assert "spawn_agent" not in skill
+    assert "spawn_agent" not in build
     assert "@mention" not in skill
+    assert "@mention" not in build
 
 
 def test_all_skill_files_exist_in_package():
