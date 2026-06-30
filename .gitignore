@@ -17,6 +17,7 @@ graphify-out/
 .graphify_*.json
 .graphify_python
 .claude/
+.opencode/
 skills/
 # The packaged skill bundles under graphify/skills/ are generated, committed
 # artifacts (rendered by tools/skillgen). Keep them tracked even though the
@@ -40,3 +41,7 @@ paper/
 
 # macOS Finder metadata
 .DS_Store
+
+.projectmem/events.jsonl
+.projectmem/watch.pid
+.projectmem/watch.log

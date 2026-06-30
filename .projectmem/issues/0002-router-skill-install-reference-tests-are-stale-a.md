@@ -1,0 +1,6 @@
+# #0002 Router skill install reference tests are stale after Phase 2 added build.md; tests/test_install_references.py still expects the old eight-reference set and wheel count.
+
+- 2026-06-30T11:00:42Z `issue`: Router skill install reference tests are stale after Phase 2 added build.md; tests/test_install_references.py still expects the old eight-reference set and wheel count. [tests/test_install_references.py:284]
+- 2026-06-30T11:01:46Z `attempt`: Added build.md to install reference expectations; tests/test_install_references.py now passes, but the full install gate still fails because tests/test_install.py expects platform dispatch markers inside the lean SKILL.md instead of references/build.md. [tests/test_install.py:217] (partial)
+- 2026-06-30T11:02:59Z `attempt`: Updated install tests to include build.md in reference sidecars and to assert platform dispatch markers in references/build.md instead of the lean SKILL.md; focused tests and the full install gate pass. [tests/test_install_references.py:284] (worked)
+- 2026-06-30T11:03:04Z `fix`: Install reference guards now track the nine-reference router sidecar set, including build.md, and platform dispatch assertions read references/build.md; full install gate passed with 167 passed / 1 skipped. [tests/test_install_references.py:284]
