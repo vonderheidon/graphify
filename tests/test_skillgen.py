@@ -3,8 +3,8 @@
 skillgen renders graphify's committed skill artifacts from human-edited
 fragments. These tests lock in the anti-drift guards (``--check``,
 ``--audit-coverage``), the render idempotency, and the lean-core invariant: the
-core runs a default extraction with zero reference reads, on-demand content
-lives only in the references, and no reference duplicates core content.
+core keeps graph-first routing inline, while on-demand runbook content lives in
+the references and command pointers resolve to packaged sidecars.
 """
 from __future__ import annotations
 
@@ -224,11 +224,13 @@ def test_lean_core_has_no_reference_only_content():
     assert "python3 -m graphify.watch" not in core
 
 
-def test_lean_core_runs_default_pipeline_with_zero_references():
-    """The default code-corpus run must be fully described inside the core."""
-    core, _ = _claude_artifacts()
+def test_build_reference_runs_default_pipeline_on_demand():
+    """The explicit full-build pipeline is available through build.md."""
+    core, refs = _claude_artifacts()
+    assert "references/build.md" in core
+    build = refs["build.md"]
     # The whole default pipeline (detect -> AST -> build -> label -> HTML ->
-    # report) must be present in the core so a plain run reads no reference.
+    # report) must be present in the build reference, not the router core.
     for needed in (
         "### Step 1 - Ensure graphify is installed",
         "### Step 2 - Detect files",
@@ -239,10 +241,9 @@ def test_lean_core_runs_default_pipeline_with_zero_references():
         "### Step 5 - Label communities",
         "### Step 6 - Generate Obsidian vault (opt-in) + HTML",
         "### Step 9 - Save manifest, update cost tracker, clean up, and report",
-        "## Honesty Rules",
         "graphify export html",
     ):
-        assert needed in core, f"lean core is missing default-pipeline content: {needed!r}"
+        assert needed in build, f"build.md is missing default-pipeline content: {needed!r}"
 
 
 def test_extraction_uses_global_opencode_auth_without_requesting_key_copy():
@@ -261,20 +262,20 @@ def test_extraction_uses_global_opencode_auth_without_requesting_key_copy():
         assert "GEMINI_API_KEY" not in a.content, a.path
 
 
-def test_references_contain_no_core_pipeline_content():
-    """No reference fragment may duplicate the core build pipeline."""
+def test_only_build_reference_contains_full_build_pipeline_content():
+    """Only build.md may carry the full build and label procedure."""
     _, refs = _claude_artifacts()
-    # Distinctive lines from the core build/label steps must not appear in any
-    # reference, or the same content would be double-homed.
-    core_only_markers = (
+    build_only_markers = (
         "from graphify.cluster import cluster, score_all",
         "### Step 4 - Build graph, cluster, analyze, generate outputs",
         "### Step 5 - Label communities",
-        "## Honesty Rules",
     )
     for name, body in refs.items():
-        for marker in core_only_markers:
-            assert marker not in body, f"reference {name} leaked core content: {marker!r}"
+        for marker in build_only_markers:
+            if name == "build.md":
+                assert marker in body, f"build.md is missing build content: {marker!r}"
+            else:
+                assert marker not in body, f"reference {name} leaked build content: {marker!r}"
 
 
 def test_reference_pointers_in_core_resolve_to_real_fragments():
@@ -312,11 +313,12 @@ def test_query_heading_is_homed_in_core_stub_only():
     assert "## For /graphify path" not in core_headings
 
 
-def test_eight_references_render_for_claude():
-    """claude renders exactly the eight on-demand fragments from the design."""
+def test_nine_references_render_for_claude():
+    """claude renders exactly the nine on-demand fragments from the design."""
     _, refs = _claude_artifacts()
     assert sorted(refs) == [
         "add-watch.md",
+        "build.md",
         "exports.md",
         "extraction-spec.md",
         "github-and-merge.md",
@@ -376,7 +378,7 @@ def test_split_router_keeps_graph_first_query_inline():
         assert "**Fast path — existing graph:**" in core, key
         assert 'Run `graphify query "<question>"` immediately.' in core, key
         assert "Do not run detect. Do not check corpus size." in core, key
-        assert core.index("**Fast path — existing graph:**") < core.index("### Step 1"), key
+        assert core.index("**Fast path — existing graph:**") < core.index("references/build.md"), key
         assert '/graphify query "<question>"' in core, key
         assert 'graphify path "AuthModule" "Database"' in core, key
         assert 'graphify explain "SwinTransformer"' in core, key
@@ -477,10 +479,11 @@ def test_descriptions_are_unified():
 
 def test_windows_frontmatter_name_and_shell_and_extra():
     """windows: graphify-windows name, powershell install, troubleshooting tail."""
-    core, _ = _platform_artifacts("windows")
+    core, refs = _platform_artifacts("windows")
+    build = refs["build.md"]
     assert core.startswith("---\nname: graphify-windows\n")
-    assert "```powershell" in core
-    assert "function Find-GraphifyPython" in core
+    assert "```powershell" in build
+    assert "function Find-GraphifyPython" in build
     assert "## Troubleshooting" in core
     assert "### PowerShell 5.1: Vertical scrolling stops working" in core
     # The troubleshooting section sits before Honesty Rules, single separator.
@@ -490,16 +493,17 @@ def test_windows_frontmatter_name_and_shell_and_extra():
 
 def test_codex_dispatch_is_agenttask_and_collects_in_memory():
     """codex: spawn/wait/close_agent dispatch needing multi_agent = true."""
-    core, _ = _platform_artifacts("codex")
-    assert "spawn_agent" in core
-    assert "wait_agent" in core
-    assert "close_agent" in core
-    assert "multi_agent = true" in core
-    assert "Codex collects in memory" in core
+    _, refs = _platform_artifacts("codex")
+    build = refs["build.md"]
+    assert "spawn_agent" in build
+    assert "wait_agent" in build
+    assert "close_agent" in build
+    assert "multi_agent = true" in build
+    assert "Codex collects in memory" in build
     # The B2 dispatch slot itself (Codex heading -> Step B3) must not carry the
     # claude Agent-tool example. The shared Step B3 prose mentions the agent type
     # in a re-run hint, so scope the check to the dispatch block only.
-    b2 = core[core.index("**Step B2"):core.index("**Step B3")]
+    b2 = build[build.index("**Step B2"):build.index("**Step B3")]
     assert "Concrete example for 3 chunks" not in b2
     assert "Agent tool call 1" not in b2
 
@@ -612,8 +616,9 @@ def test_dispatch_variants_are_host_specific():
         "vscode": "paste each response back",
     }
     for key, marker in expect.items():
-        core, _ = _platform_artifacts(key)
-        b2 = core[core.index("**Step B2"):core.index("**Step B3")]
+        _, refs = _platform_artifacts(key)
+        build = refs["build.md"]
+        b2 = build[build.index("**Step B2"):build.index("**Step B3")]
         assert marker.lower() in b2.lower(), f"[{key}] dispatch slot missing {marker!r}"
 
 
@@ -627,11 +632,12 @@ def test_compact_extraction_hosts_use_the_compact_spec():
         assert "(compact)" not in refs["extraction-spec.md"], f"[{key}] should be verbose"
 
 
-def test_every_split_host_renders_eight_references():
-    """All twelve split hosts render exactly the eight on-demand references."""
+def test_every_split_host_renders_nine_references():
+    """All split hosts render exactly the nine on-demand references."""
     platforms = gen.load_platforms()
     expected = [
         "add-watch.md",
+        "build.md",
         "exports.md",
         "extraction-spec.md",
         "github-and-merge.md",
@@ -690,7 +696,7 @@ def test_generated_runbooks_preserve_token_usage_completeness():
     """Every host distinguishes missing usage from a legitimate zero."""
     platforms = gen.load_platforms()
     for key, platform in platforms.items():
-        body = gen.render(platform)[0].content
+        body = "\n".join(a.content for a in gen.render(platform))
         assert '"status":"unavailable"' in body or "'status':'unavailable'" in body, key
         assert "Never interpret missing usage as zero" in body, key
         assert "append_cost_run" in body, key
@@ -700,7 +706,7 @@ def test_generated_runbooks_preserve_token_usage_completeness():
 def test_runbooks_use_global_opencode_go_without_automatic_gemini():
     platforms = gen.load_platforms()
     for key, platform in platforms.items():
-        body = gen.render(platform)[0].content
+        body = "\n".join(a.content for a in gen.render(platform))
         assert 'backend="opencode-go"' in body, key
         assert "opencode auth login --provider opencode-go" in body, key
         assert "GEMINI_API_KEY" not in body, key
@@ -748,15 +754,16 @@ def test_generated_runbooks_pass_root_to_save_manifest():
 
     Without root=, save_manifest stores absolute path keys, so a clone or move
     breaks --update (every cached file misses and the whole corpus re-extracts).
-    The full-build (skill.md / monoliths) and the --update reference all relativize
-    the manifest to the scan root via root='INPUT_PATH'. This guards the actual
-    shipped artifacts; --check keeps them in sync with the fragments.
+    The full-build references, monolith skill bodies, and the --update reference
+    all relativize the manifest to the scan root via root='INPUT_PATH'. This
+    guards the actual shipped artifacts; --check keeps them in sync with the
+    fragments.
     """
     targets = [
-        REPO_ROOT / "graphify" / "skill.md",
         REPO_ROOT / "graphify" / "skill-aider.md",
         REPO_ROOT / "graphify" / "skill-devin.md",
     ]
+    targets += sorted((REPO_ROOT / "graphify" / "skills").glob("*/references/build.md"))
     targets += sorted((REPO_ROOT / "graphify" / "skills").glob("*/references/update.md"))
     checked = 0
     for path in targets:
@@ -970,9 +977,10 @@ def test_trae_renders_native_agents_md_integration_not_claude():
 
 
 def test_trae_dispatch_carries_the_no_pretooluse_caveat():
-    """trae's B2 dispatch block restores the v8 no-PreToolUse-hook caveat."""
-    core, _ = _platform_artifacts("trae")
-    b2 = core[core.index("**Step B2"):core.index("Pass the extraction prompt")]
+    """trae's build B2 dispatch block restores the v8 no-PreToolUse-hook caveat."""
+    _, refs = _platform_artifacts("trae")
+    build = refs["build.md"]
+    b2 = build[build.index("**Step B2"):build.index("Pass the extraction prompt")]
     assert "Trae does NOT support PreToolUse hooks" in b2
     assert "AGENTS.md rules are the always-on mechanism instead" in b2
 
@@ -1043,12 +1051,15 @@ def test_amp_has_no_pretooluse_caveat_anywhere():
     """
     core, refs = _platform_artifacts("amp")
     hooks = refs["hooks.md"]
+    build = refs["build.md"]
     assert "PreToolUse" not in core, "amp leaked a PreToolUse caveat into its core"
     assert "PreToolUse" not in hooks, "amp leaked a PreToolUse caveat into its hooks reference"
+    assert "PreToolUse" not in build, "amp leaked a PreToolUse caveat into its build reference"
     assert "Trae does NOT support" not in core
     assert "Trae does NOT support" not in hooks
+    assert "Trae does NOT support" not in build
     # amp's dispatch is the plain task-tool-disk block (no trae caveat line).
-    b2 = core[core.index("**Step B2"):core.index("Pass the extraction prompt")]
+    b2 = build[build.index("**Step B2"):build.index("Pass the extraction prompt")]
     assert "Trae" not in b2
 
 

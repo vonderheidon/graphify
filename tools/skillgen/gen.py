@@ -98,10 +98,12 @@ ALWAYS_ON_BLOCKS = {
 ENUM_VALUES = "code|document|paper|image|rationale|concept"
 ENUM_PROSE = "`code`, `document`, `paper`, `image`, `rationale`, `concept`"
 
-# The eight on-demand references every split platform renders. Six are
-# shared-verbatim; two (extraction-spec, hooks) are variant-selected and resolved
-# per platform from the extraction/hooks_variant fields.
+# The on-demand references every split platform renders. Most are shared
+# verbatim; build uses platform slots, while extraction-spec and hooks are
+# variant-selected and resolved per platform from the extraction/hooks_variant
+# fields.
 _SHARED_REFERENCES = {
+    "build": "references/shared/build.md",
     "update": "references/shared/update.md",
     "exports": "references/shared/exports.md",
     "github-and-merge": "references/shared/github-and-merge.md",
@@ -369,6 +371,25 @@ def _render_core(platform: Platform) -> str:
     return _normalise(body)
 
 
+def _render_build_reference(platform: Platform) -> str:
+    """Fill the full-build reference's per-platform shell and dispatch slots."""
+    if platform.dispatch is None:
+        raise ValueError(f"split platform '{platform.key}' is missing a dispatch variant")
+
+    template = _read_fragment(_SHARED_REFERENCES["build"])
+    install = _read_fragment(f"shell/{platform.shell}.md").rstrip("\n")
+    dispatch = _read_fragment(f"dispatch/{platform.dispatch}.md").rstrip("\n")
+    body = (
+        template
+        .replace("@@INSTALL@@", install)
+        .replace("@@DISPATCH@@", dispatch)
+    )
+    if "@@" in body:
+        leftover = sorted(set(re.findall(r"@@\w+@@", body)))
+        raise ValueError(f"unfilled build reference slots for '{platform.key}': {leftover}")
+    return _normalise(body)
+
+
 def _render_agents_md_hooks(platform: Platform) -> str:
     """Fill the agents-md hooks template's per-host slots for this platform.
 
@@ -425,7 +446,9 @@ def render(platform: Platform) -> list[RenderedArtifact]:
     for name in sorted(references):
         # The agents-md hooks reference is a per-host template; everything else is
         # read verbatim.
-        if name == "hooks" and platform.hooks_variant == "agents-md":
+        if name == "build":
+            body = _render_build_reference(platform)
+        elif name == "hooks" and platform.hooks_variant == "agents-md":
             body = _render_agents_md_hooks(platform)
         else:
             body = _read_fragment(references[name])
