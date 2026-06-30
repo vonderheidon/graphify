@@ -50,7 +50,9 @@ _HEAVY_CORE_MARKERS = {
         "### Step 3 - Extract entities and relationships",
         "### Step 4 - Build graph, cluster, analyze, generate outputs",
         "from graphify.cluster import cluster, score_all",
+        "wrote = to_json(",
         "### Step 5 - Label communities",
+        "append_cost_run(",
     ),
     "update": (
         "from graphify.build import build_merge",
@@ -63,14 +65,16 @@ _HEAVY_CORE_MARKERS = {
     ),
     "add-watch": (
         "from graphify.ingest import ingest",
-        "python3 -m graphify.watch",
+        "-m graphify.watch INPUT_PATH --debounce 3",
     ),
     "hooks": (
         "graphify hook install",
     ),
     "extraction-schema": (
+        "You are a graphify extraction subagent",
         '"file_type":"code|document|paper|image|rationale|concept"',
         "Node ID format: lowercase, only `[a-z0-9_]`",
+        "CHUNK_PATH",
     ),
 }
 
@@ -123,14 +127,20 @@ _ROUTER_REFERENCE_ROUTES = {
     "transcribe": {
         "core": ("--whisper-model", "references/transcribe.md"),
         "reference": "transcribe.md",
-        "reference_markers": ("from graphify.transcribe import transcribe_all", ".graphify_transcripts.json"),
+        "reference_markers": (
+            "GRAPHIFY_WHISPER_PROMPT",
+            "from graphify.transcribe import transcribe_all",
+            ".graphify_transcripts.json",
+        ),
     },
     "extraction-schema": {
         "core": ("references/extraction-spec.md",),
         "reference": "extraction-spec.md",
         "reference_markers": (
+            "You are a graphify extraction subagent",
             '"file_type":"code|document|paper|image|rationale|concept"',
             "Node ID format: lowercase",
+            "CHUNK_PATH",
         ),
     },
 }
