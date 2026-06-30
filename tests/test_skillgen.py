@@ -25,6 +25,9 @@ from tools.skillgen import gen  # noqa: E402
 # Documented pre-router split-core word counts, measured from the committed
 # render before graphify-router-skill Phase 1. GRS-06 requires the split core to
 # shrink by at least 40% against this fixed baseline, not against itself.
+#
+# Post-router measurement captured for the two required split hosts:
+# claude 4645 -> 1214 words; codex 4645 -> 1214 words.
 _SPLIT_CORE_BASELINE_WORDS = {
     "claude": 4645,
     "codex": 4645,
