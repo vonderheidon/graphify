@@ -100,6 +100,11 @@ _ROUTER_REFERENCE_ROUTES = {
     },
     "build": {
         "core": ("/graphify <path>", "references/build.md"),
+        "core_row": (
+            "| `/graphify`, `/graphify <path>`, GitHub URLs, multi-path merge, "
+            "`--mode deep`, `--directed`, `--no-viz`, or full build completion/reporting "
+            "| Load `references/build.md` and follow it in order. |"
+        ),
         "reference": "build.md",
         "reference_markers": (
             "### Step 1 - Ensure graphify is installed",
@@ -416,6 +421,10 @@ def test_split_router_routes_cover_every_required_reference():
         for route, expectation in _ROUTER_REFERENCE_ROUTES.items():
             for marker in expectation["core"]:
                 assert marker in core, f"[{key}] route {route!r} missing core marker {marker!r}"
+            if core_row := expectation.get("core_row"):
+                assert core_row in core, (
+                    f"[{key}] route {route!r} must keep intent and reference in the same router row"
+                )
             reference = expectation["reference"]
             assert reference in refs, f"[{key}] route {route!r} missing rendered {reference}"
             for marker in expectation["reference_markers"]:

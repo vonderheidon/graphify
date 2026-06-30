@@ -353,10 +353,11 @@ def test_pyproject_declares_references_globs():
     assert "skills/*/SKILL.md" not in pkg_data
 
 
-# The full progressive-disclosure payload the wheel must ship: 15 skill bodies,
-# 117 references (13 split hosts x 9 each), and 6 always-on injection blocks.
+# The full progressive-disclosure payload the wheel must ship: 16 skill bodies,
+# 126 references (14 split hosts x 9 each), and 6 always-on injection blocks.
 _EXPECTED_SKILL_BODIES = (
     "skill.md",
+    "skill-agents.md",
     "skill-codex.md",
     "skill-opencode.md",
     "skill-kilo.md",
@@ -373,7 +374,7 @@ _EXPECTED_SKILL_BODIES = (
     "skill-devin.md",
 )
 _SPLIT_HOSTS = (
-    "claude", "codex", "windows", "opencode", "kilo", "copilot",
+    "claude", "agents", "codex", "windows", "opencode", "kilo", "copilot",
     "claw", "droid", "amp", "trae", "kiro", "pi", "vscode",
 )
 _REFERENCE_NAMES = (
@@ -429,8 +430,8 @@ def test_built_wheel_ships_the_full_skill_payload():
     This is the headline regression guard. If the package-data globs fail to match
     (e.g. the stale skills/*/SKILL.md glob that matched nothing), the wheel ships a
     SKILL.md with no references/ sidecar and an install silently loses every
-    on-demand fragment. The test asserts the whole shipped layout: 15 skill
-    bodies, 117 references, and 6 always-on injection blocks. It FAILS (not skips)
+    on-demand fragment. The test asserts the whole shipped layout: 16 skill
+    bodies, 126 references, and 6 always-on injection blocks. It FAILS (not skips)
     when the build backend is missing, because build is a declared dev dependency.
     """
     repo_root = PKG_DIR.parent
@@ -446,7 +447,7 @@ def test_built_wheel_ships_the_full_skill_payload():
 
     missing_bodies = [b for b in _EXPECTED_SKILL_BODIES if f"graphify/{b}" not in names]
     assert not missing_bodies, f"wheel is missing skill bodies: {missing_bodies}"
-    assert len(_EXPECTED_SKILL_BODIES) == 15
+    assert len(_EXPECTED_SKILL_BODIES) == 16
 
     missing_refs = [
         f"graphify/skills/{host}/references/{ref}"
@@ -455,7 +456,7 @@ def test_built_wheel_ships_the_full_skill_payload():
         if f"graphify/skills/{host}/references/{ref}" not in names
     ]
     assert not missing_refs, f"wheel is missing references: {missing_refs}"
-    assert len(_SPLIT_HOSTS) * len(_REFERENCE_NAMES) == 117
+    assert len(_SPLIT_HOSTS) * len(_REFERENCE_NAMES) == 126
 
     missing_always_on = [
         f"graphify/always_on/{name}"
