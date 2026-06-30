@@ -75,6 +75,67 @@ _HEAVY_CORE_MARKERS = {
 }
 
 
+_ROUTER_REFERENCE_ROUTES = {
+    "query": {
+        "core": ('/graphify query "<question>"', "references/query.md"),
+        "reference": "query.md",
+        "reference_markers": ("graphify query \"QUESTION\"", "Constrained query expansion"),
+    },
+    "path": {
+        "core": ('graphify path "AuthModule" "Database"', "references/query.md"),
+        "reference": "query.md",
+        "reference_markers": ("## For /graphify path", 'graphify path "NODE_A" "NODE_B"'),
+    },
+    "explain": {
+        "core": ('graphify explain "SwinTransformer"', "references/query.md"),
+        "reference": "query.md",
+        "reference_markers": ("## For /graphify explain", 'graphify explain "NODE_NAME"'),
+    },
+    "build": {
+        "core": ("/graphify <path>", "references/build.md"),
+        "reference": "build.md",
+        "reference_markers": (
+            "### Step 1 - Ensure graphify is installed",
+            "### Step 4 - Build graph, cluster, analyze, generate outputs",
+            "### Step 9 - Save manifest, update cost tracker, clean up, and report",
+        ),
+    },
+    "update": {
+        "core": ("--update", "references/update.md"),
+        "reference": "update.md",
+        "reference_markers": ("## For --update", "build_merge"),
+    },
+    "exports": {
+        "core": ("--wiki", "references/exports.md"),
+        "reference": "exports.md",
+        "reference_markers": ("graphify export wiki", "graphify export graphml"),
+    },
+    "add-watch": {
+        "core": ("/graphify add <url>", "--watch", "references/add-watch.md"),
+        "reference": "add-watch.md",
+        "reference_markers": ("from graphify.ingest import ingest", "Start a background watcher"),
+    },
+    "hooks": {
+        "core": ("commit hook", "references/hooks.md"),
+        "reference": "hooks.md",
+        "reference_markers": ("graphify hook install", "After every `git commit`"),
+    },
+    "transcribe": {
+        "core": ("--whisper-model", "references/transcribe.md"),
+        "reference": "transcribe.md",
+        "reference_markers": ("from graphify.transcribe import transcribe_all", ".graphify_transcripts.json"),
+    },
+    "extraction-schema": {
+        "core": ("references/extraction-spec.md",),
+        "reference": "extraction-spec.md",
+        "reference_markers": (
+            '"file_type":"code|document|paper|image|rationale|concept"',
+            "Node ID format: lowercase",
+        ),
+    },
+}
+
+
 def test_audit_coverage_passes():
     """Every v8 heading lands in the lean core or exactly one reference."""
     platforms = gen.load_platforms()
@@ -217,6 +278,17 @@ def test_reference_pointers_in_core_resolve_to_real_fragments():
     assert not missing, f"core points at references that were not rendered: {missing}"
 
 
+def test_reference_pointers_in_all_split_cores_resolve_to_real_fragments():
+    """GRS-04: every split router pointer resolves to a rendered sidecar."""
+    import re
+
+    for key, core, refs in _split_platform_artifacts():
+        pointed = set(re.findall(r"references/([\w-]+)\.md", core))
+        rendered = {name[: -len(".md")] for name in refs}
+        missing = pointed - rendered
+        assert missing == set(), f"[{key}] core points at missing references: {missing}"
+
+
 def test_query_heading_is_homed_in_core_stub_only():
     """The query section heading is the lean-core stub; query.md re-homes the rest."""
     core, refs = _claude_artifacts()
@@ -321,6 +393,31 @@ def test_split_router_core_is_40_percent_smaller_than_documented_baseline():
             f"[{key}] split core has {current} words; expected <= {baseline * 0.60:.0f} "
             f"from documented baseline {baseline}"
         )
+
+
+def test_split_router_routes_cover_every_required_reference():
+    """GRS-03/GRS-04: every command family has a core pointer and reference body."""
+    for key, core, refs in _split_platform_artifacts():
+        for route, expectation in _ROUTER_REFERENCE_ROUTES.items():
+            for marker in expectation["core"]:
+                assert marker in core, f"[{key}] route {route!r} missing core marker {marker!r}"
+            reference = expectation["reference"]
+            assert reference in refs, f"[{key}] route {route!r} missing rendered {reference}"
+            for marker in expectation["reference_markers"]:
+                assert marker in refs[reference], (
+                    f"[{key}] route {route!r} reference {reference} missing marker {marker!r}"
+                )
+
+
+def test_build_reference_renders_for_every_split_platform_when_routed():
+    """GRS-03: explicit build routing must not point at an unpackaged sidecar."""
+    for key, core, refs in _split_platform_artifacts():
+        assert "references/build.md" in core, f"[{key}] full-build route must point at build.md"
+        assert "build.md" in refs, f"[{key}] build.md pointer must render as a split reference"
+        build = refs["build.md"]
+        assert "### Step 1 - Ensure graphify is installed" in build, key
+        assert "### Step 4 - Build graph, cluster, analyze, generate outputs" in build, key
+        assert "### Step 9 - Save manifest, update cost tracker, clean up, and report" in build, key
 
 
 def test_check_passes_for_codex_and_windows():
