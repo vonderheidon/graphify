@@ -284,6 +284,19 @@ def test_agents_uninstall_keeps_gitignore_block(tmp_path):
     assert (cwd / ".gitignore").read_bytes() == before
 
 
+def test_agents_help_documents_gitignore_lifecycle(tmp_path, capsys):
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+
+    _run(cwd, ["skills", "--help"], home)
+
+    output = capsys.readouterr().out
+    assert "install [--no-gitignore] | uninstall" in output
+    assert "uninstall keeps the managed .gitignore" in output
+
+
 def test_skills_subcommand_is_the_agents_subcommand(tmp_path):
     """`graphify skills install`/`uninstall` behaves exactly like the agents form:
     skill at ~/.agents/skills (with references) PLUS the AGENTS.md section."""

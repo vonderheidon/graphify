@@ -14,7 +14,7 @@
 
 ## Phase 3 — Documentation
 
-- [ ] T3 Update README/help and self-hosting policy.
+- [x] T3 Update README/help and self-hosting policy.
   - Verify: focused strings/help tests and skillgen check.
   - Gate: build.
 

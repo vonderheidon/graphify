@@ -218,6 +218,16 @@ Run this once in your project after building a graph:
 
 This writes a small config file that tells your assistant to consult the knowledge graph for codebase questions — preferring scoped queries like `graphify query "<question>"` over reading the full report or grepping raw files. On platforms that support payload-bearing hooks (Claude Code, Gemini CLI), a hook fires automatically before search-style tool calls (and, on Claude Code, before reading source files one by one via the Read/Glob tools) and nudges your assistant toward the graph path. On the others (Codex, OpenCode, Cursor, etc.), the persistent instruction files (`AGENTS.md`, `.cursor/rules/`, etc.) provide the same query-first guidance. `GRAPH_REPORT.md` is still available for broad architecture review.
 
+`graphify agents install` (and its `skills` alias) also creates or refreshes a
+delimited block in the project's `.gitignore`. The block keeps portable
+`graph.json`, `graph.html`, `GRAPH_REPORT.md`, `manifest.json`, labels, memory,
+and reflections versionable while ignoring machine-local cache, cost,
+interpreter/root, vocabulary, temporary conversion, and dated snapshot files.
+Exact legacy `graphify-out/` ignores and equivalent granular rules are migrated
+without touching unrelated user rules. Use `--no-gitignore` when a repository
+must own that policy itself. Uninstall removes the skill and `AGENTS.md`
+integration but intentionally leaves the `.gitignore` block.
+
 **CodeBuddy** does the same two things as Claude Code: writes a `CODEBUDDY.md` section telling CodeBuddy to read `graphify-out/GRAPH_REPORT.md` before answering architecture questions, and installs **PreToolUse hooks** (`.codebuddy/settings.json`) that fire before Bash search commands and file reads, nudging toward `graphify query` instead.
 
 **Codex** writes to `AGENTS.md` and also installs a **PreToolUse hook** in `.codex/hooks.json` that fires before every Bash tool call — same always-on mechanism as Claude Code.
@@ -331,10 +341,19 @@ dist/
 
 `graphify-out/` is meant to be committed to git so everyone on the team starts with a map.
 
-**Recommended `.gitignore` additions:**
+`graphify agents install` manages the recommended shared-output policy
+automatically. For manual installations, use equivalent `.gitignore` additions:
 ```
-graphify-out/cost.json        # local only
-# graphify-out/cache/         # optional: commit for speed, skip to keep repo small
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/.vocab.txt
+graphify-out/.graphify_*
+!graphify-out/.graphify_labels.json
+graphify-out/.needs_update
+graphify-out/converted/
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 ```
 
 > `manifest.json` is now portable — keys are stored as relative paths and re-anchored on load, so committing it is safe and avoids a full rebuild on first checkout.
@@ -587,8 +606,9 @@ graphify hermes install             # AGENTS.md + ~/.hermes/skills/ (Hermes)
 graphify hermes uninstall
 graphify amp install               # skill file (Amp)
 graphify amp uninstall
-graphify agents install            # ~/.agents/skills/ + AGENTS.md (cross-framework; alias: graphify skills)
-graphify agents uninstall
+graphify agents install            # ~/.agents/skills/ + AGENTS.md + managed .gitignore
+graphify agents install --no-gitignore  # skip only .gitignore management
+graphify agents uninstall          # managed .gitignore block remains
 graphify kiro install               # .kiro/skills/ + .kiro/steering/graphify.md (Kiro IDE/CLI)
 graphify kiro uninstall
 graphify pi install                # skill file (Pi coding agent)

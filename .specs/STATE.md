@@ -21,10 +21,10 @@
 ## Handoff
 
 - **Feature**: `.specs/features/agents-install-gitignore/`
-- **Phase / Task**: Phase 2 / T2 complete
+- **Phase / Task**: Phase 3 / T3 complete
 - **Completed**: T1 `23983ce`; T2 `7d99cf8`; review refinement `c281a46`; T3/T4/T5 `ca399cd`; T6 `df70a02`; T7 `fcc9232`; T8 final gates, graph refresh, wheel coverage correction, and independent validation PASS
 - **In-progress** (file:line): none
-- **Next step**: T3 update README/help and self-hosting policy.
+- **Next step**: T4 run full validation, discrimination sensor, and graph refresh.
 - **Blockers**: none; skillgen gate passed (148 artifacts), install gate passed (`167 passed, 1 skipped`), full gate passed outside the restricted HTTP sandbox (`2541 passed, 3 skipped`), and the independent Verifier passed 6/6 requirements with 3/3 mutations killed.
 - **Uncommitted files**: preexisting `.gitignore`, `AGENTS.md`, `CLAUDE.md`, `.projectmem/`
 - **Branch**: `v8...fork/v8`

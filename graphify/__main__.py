@@ -2286,6 +2286,10 @@ def main() -> None:
         print()
         print("Commands:")
         print("  install [--platform P]  copy skill to platform config dir (claude|windows|codebuddy|codex|opencode|aider|amp|agents|claw|droid|trae|trae-cn|gemini|cursor|antigravity|hermes|kiro|pi|devin)")
+        print("  agents install          install cross-framework skill + AGENTS.md + managed .gitignore")
+        print("    --no-gitignore         skip creating/updating the managed .gitignore block")
+        print("  agents uninstall        remove skill + AGENTS.md integration; keep .gitignore block")
+        print("                            (`skills` is an alias for `agents`)")
         print("  uninstall               remove graphify from all detected platforms in one shot")
         print("    --purge                 also delete graphify-out/ directory")
         print("  path \"A\" \"B\"            shortest path between two nodes in graph.json")
@@ -2474,7 +2478,11 @@ def main() -> None:
     # Exempt: free-text commands (user string may contain these tokens), and
     # "install"/"uninstall" which have their own per-subcommand help handlers.
     _FREE_TEXT_CMDS = {"query", "explain", "path", "save-result", "install", "uninstall"}
-    if cmd not in _FREE_TEXT_CMDS and any(a in {"-h", "--help", "-?"} for a in sys.argv[2:]):
+    if (
+        cmd not in _FREE_TEXT_CMDS
+        and cmd not in ("agents", "skills")
+        and any(a in {"-h", "--help", "-?"} for a in sys.argv[2:])
+    ):
         print(f"Run 'graphify --help' for full usage.")
         return
 
@@ -2689,7 +2697,14 @@ def main() -> None:
             sys.exit(1)
     elif cmd in ("agents", "skills"):
         subcmd = sys.argv[2] if len(sys.argv) > 2 else ""
-        if subcmd == "install":
+        if subcmd in ("-h", "--help", "help"):
+            print(f"Usage: graphify {cmd} install [--no-gitignore] | uninstall")
+            print()
+            print("install writes the cross-framework skill, AGENTS.md integration,")
+            print("and an idempotent shared-output block in the local .gitignore.")
+            print("--no-gitignore skips only .gitignore management.")
+            print("uninstall keeps the managed .gitignore policy in place.")
+        elif subcmd == "install":
             if "--project" in sys.argv[3:]:
                 _project_install("agents", Path("."))
             else:
